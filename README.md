@@ -81,7 +81,7 @@ The surrogate model replaces numerical integration during real-time flight telem
 - Heat Load Q_in(t)              ┌──────────────────────┐               - T_evap(t+1...t+H)
 - Sink Temp T_sink               │   2-Layer LSTM/GRU   │  ──────────>  - T_cond(t+1...t+H)
 - Fill Ratio FR, g-load          │   Hidden Dim: 64     │               - R_th(t+1...t+H)
-- Historical Window (t-L...t)   └──────────────────────┘
+- Historical Window (t-L...t)    └──────────────────────┘
                                             │
                                             ▼
                                [Physics-Informed Loss]
