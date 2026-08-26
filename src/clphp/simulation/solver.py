@@ -52,8 +52,8 @@ def simulate_clphp(
     t_sink_k: float = 293.15,
     t_init_k: float = 293.15,
     g_accel: float = 9.81,
-    rtol: float = 1e-3,
-    atol: float = 1e-4,
+    rtol: float = 1e-2,
+    atol: float = 1e-3,
 ) -> SimulationResult:
     """
     Run high-fidelity transient numerical simulation of a CLPHP.

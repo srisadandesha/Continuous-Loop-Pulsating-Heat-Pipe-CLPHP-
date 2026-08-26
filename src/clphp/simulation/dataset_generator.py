@@ -32,6 +32,7 @@ class DatasetConfig:
     t_step: float = 0.05
     n_turns: int = 5
     d_inner: float = 0.002
+    solver_method: str = "RK23"
 
     def __post_init__(self):
         if self.q_in_values is None:
@@ -91,7 +92,9 @@ def generate_parametric_dataset(
                             t_eval_step=cfg.t_step,
                             t_sink_k=t_sink,
                             g_accel=g,
-                            solver_method="RK45",
+                            solver_method=cfg.solver_method,
+                            rtol=1e-2,
+                            atol=1e-3,
                         )
 
                         # Extract time series

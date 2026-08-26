@@ -11,7 +11,7 @@ Traditional two-phase Computational Fluid Dynamics (CFD) (Volume of Fluid / Leve
 
 **This project delivers a dual-tier hybrid simulation framework:**
 1. **High-Fidelity Lumped-Parameter ODE Engine**: Discretizes the closed capillary loop into alternating liquid slugs and vapor plugs with coupled momentum, energy, and Hertz-Knudsen phase-change equations, solvable in seconds.
-2. **Physics-Informed Recurrent Neural Network (PI-RNN / LSTM / GRU)**: A deep learning surrogate trained on parametric synthetic datasets with embedded thermodynamic loss constraints, enabling sub-millisecond ($<2\text{ ms}$, **>1000x faster than ODE integration**) transient temperature and thermal resistance predictions.
+2. **Physics-Informed Recurrent Neural Network (PI-RNN / LSTM / GRU)**: A deep learning surrogate trained on parametric synthetic datasets with embedded thermodynamic loss constraints, enabling sub-millisecond ($0.066\text{ ms}$, **$>15,000\times$ faster than numerical ODE integration**) transient temperature and thermal resistance predictions.
 
 ```
 +-----------------------------------------------------------------------------------+

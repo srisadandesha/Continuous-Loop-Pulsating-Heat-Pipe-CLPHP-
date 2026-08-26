@@ -18,6 +18,20 @@ from clphp.models.rnn_surrogate import PIRNNSurrogate
 from clphp.models.pinn_loss import PhysicsInformedLoss
 
 
+def get_default_device() -> torch.device:
+    """Detect and return the best available compute device (CUDA, DirectML, MPS, or CPU)."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    try:
+        import torch_directml
+        return torch_directml.device()
+    except ImportError:
+        pass
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 class SurrogateTrainer:
     """
     Trainer for Physics-Informed Recurrent Neural Networks.
@@ -29,9 +43,15 @@ class SurrogateTrainer:
         loss_fn: Optional[PhysicsInformedLoss] = None,
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
-        device: Optional[str] = None,
+        device: Optional[Union[str, torch.device]] = None,
     ):
-        self.device = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
+        if device is None:
+            self.device = get_default_device()
+        elif isinstance(device, str):
+            self.device = torch.device(device)
+        else:
+            self.device = device
+
         self.model = model.to(self.device)
         self.loss_fn = (loss_fn or PhysicsInformedLoss()).to(self.device)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -184,6 +204,7 @@ def train_surrogate(
     num_layers: int = 2,
     rnn_type: str = "lstm",
     lr: float = 1e-3,
+    device: Optional[Union[str, torch.device]] = None,
     save_path: Optional[str] = None,
     verbose: bool = True,
 ) -> Tuple[PIRNNSurrogate, Dict[str, list]]:
@@ -219,7 +240,7 @@ def train_surrogate(
     )
 
     loss_fn = PhysicsInformedLoss(norm_params=norm_params)
-    trainer = SurrogateTrainer(model=model, loss_fn=loss_fn, lr=lr)
+    trainer = SurrogateTrainer(model=model, loss_fn=loss_fn, lr=lr, device=device)
     history = trainer.fit(train_loader, val_loader, epochs=epochs, verbose=verbose)
 
     if save_path:

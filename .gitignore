@@ -68,6 +68,6 @@ venv.bak/
 *.swo
 
 # Large generated training datasets (optional, keep code light)
-data/*.npz
-output/*.png
-models/*.pt
+# data/*.npz
+# output/*.png
+# models/*.pt

@@ -17,7 +17,7 @@ def main():
 
     # 1. Define 5-turn copper geometry with 2 mm ID
     geo = PHPGeometry(
-        n_turns=5,
+        n_turns=3,
         d_inner=0.002,         # 2.0 mm
         d_outer=0.003,         # 3.0 mm
         l_evap=0.05,           # 50 mm
@@ -40,21 +40,22 @@ def main():
     print(f"Capillary check: Inner D = {cap_check['d_inner_mm']:.2f} mm | Critical D = {cap_check['d_crit_mm']:.2f} mm (Bo = {cap_check['bond_number']:.2f})")
     assert cap_check["is_valid"], "Capillary limit violated! Slug-plug flow cannot form."
 
-    # 2. Define a time-dependent heat step profile Q(t): 30W for t < 10s, then 80W
+    # 2. Define a time-dependent heat step profile Q(t): 30W for t < 5s, then 80W
     def dynamic_q_in(t: float) -> float:
-        if t < 10.0:
+        if t < 5.0:
             return 30.0
         return 80.0
 
-    print("Running numerical ODE solver (0 to 25s)...")
+    print("Running numerical ODE solver (0 to 10s)...")
     res = simulate_clphp(
         geometry=geo,
         fluid_name="acetone",
         q_in=dynamic_q_in,
-        t_span=(0.0, 25.0),
-        t_eval_step=0.02,
+        t_span=(0.0, 10.0),
+        t_eval_step=0.05,
         t_sink_k=293.15,
         g_accel=9.81,
+        solver_method="RK23",
     )
 
     print(f"Simulation completed in {res.elapsed_solve_time_s:.2f} seconds.")

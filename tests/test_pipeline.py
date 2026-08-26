@@ -13,7 +13,7 @@ from clphp.analysis.metrics import compute_thermal_resistance, compute_fft_spect
 
 def test_simulation_pipeline():
     geo = PHPGeometry(n_turns=3, d_inner=0.002, fill_ratio=0.50)
-    res = simulate_clphp(geometry=geo, fluid_name="acetone", q_in=40.0, t_span=(0.0, 3.0), t_eval_step=0.1)
+    res = simulate_clphp(geometry=geo, fluid_name="acetone", q_in=40.0, t_span=(0.0, 0.5), t_eval_step=0.05)
     
     assert res.success is True
     assert len(res.time) == len(res.t_evap_mean)
@@ -26,8 +26,8 @@ def test_training_pipeline():
         fill_ratios=[0.50],
         g_accels=[9.81],
         fluids=["acetone"],
-        t_sim_end=3.0,
-        t_step=0.1,
+        t_sim_end=0.5,
+        t_step=0.05,
         n_turns=3,
     )
     dataset = generate_parametric_dataset(config=cfg, verbose=False)

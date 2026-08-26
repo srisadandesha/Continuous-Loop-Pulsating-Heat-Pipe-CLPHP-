@@ -24,19 +24,20 @@ def main():
 
     # 1. Generate Parametric Training Dataset
     cfg = DatasetConfig(
-        q_in_values=[20.0, 40.0, 60.0, 80.0, 100.0],
-        fill_ratios=[0.40, 0.50, 0.60],
-        g_accels=[0.0, 9.81],
+        q_in_values=[30.0, 60.0, 90.0],
+        fill_ratios=[0.50],
+        g_accels=[9.81],
         fluids=["acetone"],
-        t_sim_end=15.0,
-        t_step=0.05,
+        t_sim_end=4.0,
+        t_step=0.1,
+        n_turns=3,
     )
     dataset_file = "data/surrogate_demo_dataset.npz"
     dataset = generate_parametric_dataset(config=cfg, output_path=dataset_file, verbose=True)
 
     # 2. Windowing
-    seq_len = 15
-    pred_horizon = 5
+    seq_len = 10
+    pred_horizon = 3
     X, y, norm_params = create_sliding_windows(dataset["runs"], seq_len=seq_len, pred_horizon=pred_horizon)
     print(f"Dataset generated: {len(X)} sequence samples. X: {X.shape}, y: {y.shape}")
 
@@ -46,7 +47,7 @@ def main():
         X=X,
         y=y,
         norm_params=norm_params,
-        epochs=35,
+        epochs=25,
         batch_size=16,
         hidden_dim=48,
         num_layers=2,
@@ -59,8 +60,8 @@ def main():
 
     # 4. Unseen Test Case Validation (Q_in = 70W, unseen in training grid)
     print("\n--- Testing on Unseen Load: Q_in = 70 W (Unseen Condition) ---")
-    test_geo = PHPGeometry(n_turns=5, d_inner=0.002, fill_ratio=0.50)
-    test_res = simulate_clphp(geometry=test_geo, fluid_name="acetone", q_in=70.0, t_span=(0.0, 15.0), t_eval_step=0.05)
+    test_geo = PHPGeometry(n_turns=3, d_inner=0.002, fill_ratio=0.50)
+    test_res = simulate_clphp(geometry=test_geo, fluid_name="acetone", q_in=70.0, t_span=(0.0, 4.0), t_eval_step=0.1, solver_method="RK23")
 
     # Construct features for test simulation
     t_arr = test_res.time
@@ -90,10 +91,11 @@ def main():
     
     preds_list = []
     times_tested = []
+    device = next(model.parameters()).device
     for i in range(len(t_arr) - seq_len - pred_horizon + 1):
-        x_window = torch.tensor(norm_test_features[i:i+seq_len][np.newaxis, :, :], dtype=torch.float32)
+        x_window = torch.tensor(norm_test_features[i:i+seq_len][np.newaxis, :, :], dtype=torch.float32, device=device)
         with torch.no_grad():
-            out_norm = model(x_window).numpy()[0]  # (pred_horizon, 3)
+            out_norm = model(x_window).cpu().numpy()[0]  # (pred_horizon, 3)
         # Denormalize
         out_denorm = out_norm * targ_std + targ_mean
         preds_list.append(out_denorm[0])  # Take 1-step ahead prediction

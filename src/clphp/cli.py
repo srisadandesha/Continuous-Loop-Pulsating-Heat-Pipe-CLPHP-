@@ -140,8 +140,8 @@ def cmd_demo(args: argparse.Namespace):
 
     # 1. Physics Simulation
     print("Step 1: Running High-Fidelity Multi-Turn CLPHP ODE Simulation...")
-    geo = PHPGeometry(n_turns=5, d_inner=0.002, fill_ratio=0.50)
-    res = simulate_clphp(geometry=geo, fluid_name="acetone", q_in=60.0, t_span=(0.0, 20.0), t_eval_step=0.05)
+    geo = PHPGeometry(n_turns=3, d_inner=0.002, fill_ratio=0.50)
+    res = simulate_clphp(geometry=geo, fluid_name="acetone", q_in=60.0, t_span=(0.0, 5.0), t_eval_step=0.1, solver_method="RK23")
     
     dash_path = os.path.join(out_dir, "simulation_dashboard.png")
     plot_simulation_dashboard(res, save_path=dash_path)
@@ -150,15 +150,17 @@ def cmd_demo(args: argparse.Namespace):
     # 2. Quick Dataset Generation
     print("\nStep 2: Generating Compact Parametric Dataset for Training...")
     cfg = DatasetConfig(
-        q_in_values=[25.0, 50.0, 75.0, 100.0],
-        fill_ratios=[0.45, 0.55],
+        q_in_values=[30.0, 60.0, 90.0],
+        fill_ratios=[0.50],
         g_accels=[0.0, 9.81],
         fluids=["acetone"],
-        t_sim_end=15.0,
-        t_step=0.05,
+        t_sim_end=4.0,
+        t_step=0.1,
+        n_turns=3,
+        solver_method="RK23",
     )
     dataset = generate_parametric_dataset(config=cfg, verbose=False)
-    X, y, norm_params = create_sliding_windows(dataset["runs"], seq_len=15, pred_horizon=5)
+    X, y, norm_params = create_sliding_windows(dataset["runs"], seq_len=10, pred_horizon=3)
     print(f"-> Created {len(X)} training sequence windows.")
 
     # 3. Train Physics-Informed LSTM
@@ -169,7 +171,7 @@ def cmd_demo(args: argparse.Namespace):
         X=X,
         y=y,
         norm_params=norm_params,
-        epochs=30,
+        epochs=20,
         batch_size=16,
         hidden_dim=32,
         num_layers=2,
@@ -186,10 +188,11 @@ def cmd_demo(args: argparse.Namespace):
     import torch
 
     # Run inference across test set
-    x_test = torch.tensor(X[:50], dtype=torch.float32)
+    dev = next(model.parameters()).device
+    x_test = torch.tensor(X[:50], dtype=torch.float32, device=dev)
     t_start = time.perf_counter()
     with torch.no_grad():
-        preds_norm = model(x_test).numpy()
+        preds_norm = model(x_test).cpu().numpy()
     inf_time_ms = ((time.perf_counter() - t_start) / len(x_test)) * 1e3
 
     y_test_norm = y[:50]

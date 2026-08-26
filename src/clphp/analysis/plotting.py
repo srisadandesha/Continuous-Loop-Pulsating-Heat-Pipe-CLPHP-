@@ -79,13 +79,14 @@ def plot_simulation_dashboard(
 
     # Panel 3: Phase Space Portrait (u vs x)
     ax3 = axes[1, 0]
-    mid_idx = int(len(t) * 0.3)
+    mid_idx = int(len(t) * 0.2)
     slug_idx = 0
-    x_plot = res.displacements[mid_idx:, slug_idx] * 1e3  # mm
+    x_raw = res.displacements[mid_idx:, slug_idx]
+    x_plot = (x_raw - x_raw[0]) * 1e3  # relative mm
     u_plot = res.velocities[mid_idx:, slug_idx]
 
     ax3.plot(x_plot, u_plot, color="darkviolet", alpha=0.85, lw=1.2)
-    ax3.set_xlabel("Displacement x (mm)")
+    ax3.set_xlabel("Relative Displacement Δx (mm)")
     ax3.set_ylabel("Velocity u (m/s)")
     ax3.set_title("(c) Phase Space Orbit (Limit Cycle Trajectory)")
     ax3.grid(True)

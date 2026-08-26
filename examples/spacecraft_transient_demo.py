@@ -21,21 +21,21 @@ def main():
     # 1. Spacecraft-grade Ammonia/Acetone CLPHP (microgravity)
     geo = PHPGeometry(
         n_turns=4,
-        d_inner=0.0018,        # 1.8 mm ID
-        d_outer=0.0025,        # 2.5 mm OD (lightweight aerospace tube)
+        d_inner=0.0020,        # 2.0 mm ID
+        d_outer=0.0030,        # 3.0 mm OD
         l_evap=0.04,
         l_adiabatic=0.10,
         l_cond=0.04,
         fill_ratio=0.50,
         material="aluminum",   # Aerospace aluminum
-        inclination_angle=0.0  # Zero-g neutral orientation
+        inclination_angle=90.0  # Vertical orientation (gravity-sensitive)
     )
 
     # Dynamic orbit payload profile: 25W standby -> 80W radar burst -> 35W cooling
     def orbit_payload_q(t: float) -> float:
-        if t < 5.0:
+        if t < 2.0:
             return 25.0  # Standby / eclipse
-        elif t < 12.0:
+        elif t < 4.0:
             return 80.0  # High-rate payload burst
         else:
             return 35.0  # Post-burst cooling
@@ -45,10 +45,11 @@ def main():
         geometry=geo,
         fluid_name="acetone",
         q_in=orbit_payload_q,
-        t_span=(0.0, 15.0),
+        t_span=(0.0, 5.0),
         t_eval_step=0.05,
-        t_sink_k=273.15,  # Space radiator sink temp (0 °C)
+        t_sink_k=293.15,  # Radiator sink temp (20 °C)
         g_accel=0.0,
+        solver_method="RK23",
     )
     print(f"Case A completed in {res_zero_g.elapsed_solve_time_s:.2f} s.")
 
@@ -57,10 +58,11 @@ def main():
         geometry=geo,
         fluid_name="acetone",
         q_in=orbit_payload_q,
-        t_span=(0.0, 15.0),
+        t_span=(0.0, 5.0),
         t_eval_step=0.05,
-        t_sink_k=273.15,
+        t_sink_k=293.15,
         g_accel=9.81,
+        solver_method="RK23",
     )
     print(f"Case B completed in {res_high_g.elapsed_solve_time_s:.2f} s.")
 
