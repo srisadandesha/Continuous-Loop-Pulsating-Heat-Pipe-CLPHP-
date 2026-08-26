@@ -24,7 +24,6 @@ An advanced computational physics engine and **Physics-Informed Recurrent Neural
   - **Inference Speedup**: **$0.066\text{ ms}$** latency per sequence window (**$>15,000\times$ faster than numerical ODE integration**), enabling real-time spacecraft flight controllers and digital twins.
 - **Hardware Acceleration**: Automatic hardware device selection supporting **NVIDIA CUDA**, **AMD DirectML** (`torch-directml`), **Apple MPS**, or **CPU**.
 - **CoolProp & NIST Fluid Engine**: Full thermodynamic property tables for **Acetone**, **Ammonia**, **Water**, **Ethanol**, **Methanol**, and **R134a**.
-- **Cloud / Google Colab Ready**: Includes interactive notebooks and zero-setup deployment scripts.
 
 ---
 
@@ -165,23 +164,6 @@ python -m clphp.cli demo
 
 ---
 
-## ☁️ Running on Google Colab / Cloud
-
-If you do not have a dedicated GPU or want to collaborate with teammates in the cloud:
-
-1. Create a new Google Colab notebook at [colab.research.google.com](https://colab.research.google.com).
-2. Upload the `mechproject` folder or clone your GitHub repository:
-```python
-!git clone <your-repo-url>
-%cd mechproject
-!pip install -e .
-!pytest tests/ -v
-!python examples/quickstart_simulation.py
-```
-3. Run the interactive examples directly from Colab with free GPU acceleration for training!
-
----
-
 ## 📊 Verified Output Artifacts & Plots
 
 The framework automatically generates publication-ready high-resolution plots in the [`output/`](output/) directory:
@@ -192,27 +174,6 @@ The framework automatically generates publication-ready high-resolution plots in
 4. **[`output/pinn_training_curve.png`](output/pinn_training_curve.png)**: Log-scale training history curve illustrating Total PINN Loss and Data MSE convergence over 25 epochs.
 5. **[`output/simulation_dashboard.png`](output/simulation_dashboard.png)**: End-to-end multi-turn CLPHP diagnostic dashboard generated via CLI (`python -m clphp.cli demo`).
 6. **[`output/training_loss.png`](output/training_loss.png)**: CLI demo surrogate model loss convergence plot.
-
----
-
-## 👥 How to Collaborate on This Project
-
-1. **GitHub Collaboration (Recommended)**:
-   - Initialize a git repository:
-     ```bash
-     git init
-     git add .
-     git commit -m "Initial commit of CLPHP Framework"
-     git branch -M main
-     git remote add origin https://github.com/<your-username>/<your-repo-name>.git
-     git push -u origin main
-     ```
-   - Invite your friend/collaborator as a collaborator on GitHub (`Settings` > `Collaborators`).
-   - Your friend can clone the repository, run the code, and collaborate in their own Antigravity / IDE environment.
-
-2. **Zip & Share**:
-   - Compress the `mechproject` directory into a `.zip` file.
-   - Send it to your collaborator. They simply run `pip install -e .` and everything works out of the box.
 
 ---
 
