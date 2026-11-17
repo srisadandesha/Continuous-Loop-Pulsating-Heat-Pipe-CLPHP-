@@ -24,6 +24,7 @@ from clphp.analysis.plotting import (
     plot_training_history,
 )
 from clphp.models.evaluation import evaluate_one_step, evaluate_rollout, format_comparison
+from clphp.analysis.benchmark import benchmark_speed, format_benchmark
 
 
 def cmd_simulate(args: argparse.Namespace):
@@ -200,6 +201,13 @@ def cmd_demo(args: argparse.Namespace):
         for label, hres in res_roll["horizons"].items():
             print(format_comparison(f"   autoregressive rollout, first {label} steps (predictions fed back):", hres))
 
+    # 5. Honest speed benchmark: solve_ivp vs surrogate rollout on the same test runs
+    print("\nStep 5: Wall-clock benchmark (same runs, same duration, same machine)...")
+    bench = benchmark_speed(
+        model, splits["test_interp"] + splits["test_extrap"], norm_params,
+        sim=cfg.sim_settings(), seq_len=10, pred_horizon=3, n_solver_runs=2,
+    )
+    print(format_benchmark(bench))
 
     print("\n=================================================================")
     print(f"  Demo Successfully Finished! All artifacts generated in: {out_dir}/")

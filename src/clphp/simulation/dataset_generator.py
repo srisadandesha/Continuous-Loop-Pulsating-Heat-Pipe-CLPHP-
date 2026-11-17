@@ -47,6 +47,16 @@ class DatasetConfig:
     n_turns: int = 5
     d_inner: float = 0.002
     solver_method: str = "RK23"
+    rtol: float = 1e-2
+    atol: float = 1e-3
+
+    def sim_settings(self) -> Dict[str, Any]:
+        """Generation settings as a dict (used to re-time the solver in benchmarks)."""
+        return {
+            "n_turns": self.n_turns, "d_inner": self.d_inner, "t_sim_end": self.t_sim_end,
+            "t_step": self.t_step, "solver_method": self.solver_method,
+            "rtol": self.rtol, "atol": self.atol,
+        }
 
     def __post_init__(self):
         if self.q_in_values is None:
@@ -109,8 +119,8 @@ def generate_parametric_dataset(
                             t_sink_k=t_sink,
                             g_accel=g,
                             solver_method=cfg.solver_method,
-                            rtol=1e-2,
-                            atol=1e-3,
+                            rtol=cfg.rtol,
+                            atol=cfg.atol,
                         )
 
                         # Extract time series
