@@ -139,8 +139,10 @@ class SurrogateTrainer:
             self.history["val_data_loss"].append(val_metrics["val_data_loss"])
             self.history["learning_rate"].append(current_lr)
 
-            if val_metrics["val_loss"] < best_val_loss:
-                best_val_loss = val_metrics["val_loss"]
+            # Select on the data-only validation loss so runs with different physics
+            # weights (ablations) are compared with the same criterion.
+            if val_metrics["val_data_loss"] < best_val_loss:
+                best_val_loss = val_metrics["val_data_loss"]
                 best_state = {k: v.detach().clone() for k, v in self.model.state_dict().items()}
 
             if verbose and (epoch % max(1, epochs // 10) == 0 or epoch == epochs or epoch == 1):
