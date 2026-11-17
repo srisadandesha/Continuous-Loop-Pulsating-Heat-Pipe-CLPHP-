@@ -5,6 +5,7 @@ import pytest
 
 from clphp.simulation.dataset_generator import (
     build_split_windows,
+    fit_norm_params,
     split_runs_by_q_in,
     DEFAULT_TRAIN_Q,
     DEFAULT_VAL_Q,
@@ -88,3 +89,19 @@ def test_shuffling_cannot_happen_before_split():
     _, w2, _ = build_split_windows(runs, seq_len=5, pred_horizon=2, stride=1)
     for k in w1:
         assert np.array_equal(w1[k][0], w2[k][0])
+
+
+def test_norm_stats_come_from_train_runs_only():
+    runs = _fake_runs(ALL_Q)
+    splits, windows, norm = build_split_windows(runs, seq_len=5, pred_horizon=2, stride=1)
+    expected = fit_norm_params(splits["train"])
+    pooled = fit_norm_params(runs)
+    for k in expected:
+        assert np.allclose(norm[k], expected[k])
+    # Pooled stats (train+val+test) differ -> using them would leak test info
+    assert not np.allclose(norm["feat_mean"][0], pooled["feat_mean"][0])
+    # Held-out runs are normalised with the *train* statistics
+    X, _ = windows["test_extrap"]
+    q = X[:, 0, 0] * norm["feat_std"][0] + norm["feat_mean"][0]
+    assert np.allclose(q, 160.0, atol=1e-3)
+    assert X[:, :, 0].max() > (max(DEFAULT_TRAIN_Q) - norm["feat_mean"][0]) / norm["feat_std"][0]

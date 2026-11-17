@@ -185,6 +185,20 @@ def generate_parametric_dataset(
     return dataset
 
 
+def fit_norm_params(train_runs: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
+    """Fit normalization statistics on *training runs only*."""
+    if not train_runs:
+        raise ValueError("Cannot fit normalization statistics on zero runs")
+    all_feat = np.concatenate([r["features"] for r in train_runs], axis=0)
+    all_targ = np.concatenate([r["targets"] for r in train_runs], axis=0)
+    return {
+        "feat_mean": np.mean(all_feat, axis=0),
+        "feat_std": np.std(all_feat, axis=0) + 1e-8,
+        "targ_mean": np.mean(all_targ, axis=0),
+        "targ_std": np.std(all_targ, axis=0) + 1e-8,
+    }
+
+
 def create_sliding_windows(
     runs_data: List[Dict[str, Any]],
     seq_len: int = 20,
@@ -215,14 +229,7 @@ def create_sliding_windows(
     x_list, y_list = [], []
 
     if norm_params is None:
-        all_feat = np.concatenate([r["features"] for r in runs_data], axis=0)
-        all_targ = np.concatenate([r["targets"] for r in runs_data], axis=0)
-        norm_params = {
-            "feat_mean": np.mean(all_feat, axis=0),
-            "feat_std": np.std(all_feat, axis=0) + 1e-8,
-            "targ_mean": np.mean(all_targ, axis=0),
-            "targ_std": np.std(all_targ, axis=0) + 1e-8,
-        }
+        norm_params = fit_norm_params(runs_data)
     feat_mean, feat_std = norm_params["feat_mean"], norm_params["feat_std"]
     targ_mean, targ_std = norm_params["targ_mean"], norm_params["targ_std"]
 
@@ -322,7 +329,8 @@ def build_split_windows(
     splits = split_runs_by_q_in(runs_data, train_q, val_q, test_q)
     if not splits["train"] or not splits["val"]:
         raise ValueError("Both the train and val splits must contain at least one run")
-    X_tr, y_tr, norm = create_sliding_windows(splits["train"], seq_len, pred_horizon, stride)
+    norm = fit_norm_params(splits["train"])  # train runs only; reused for val/test
+    X_tr, y_tr, _ = create_sliding_windows(splits["train"], seq_len, pred_horizon, stride, norm_params=norm)
     windows = {"train": (X_tr, y_tr)}
     for name, runs in splits.items():
         if name == "train" or not runs:
