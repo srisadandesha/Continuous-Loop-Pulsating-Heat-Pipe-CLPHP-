@@ -54,6 +54,7 @@ def simulate_clphp(
     g_accel: float = 9.81,
     rtol: float = 1e-2,
     atol: float = 1e-3,
+    seed: int = 42,
 ) -> SimulationResult:
     """
     Run high-fidelity transient numerical simulation of a CLPHP.
@@ -71,6 +72,7 @@ def simulate_clphp(
         g_accel: Acceleration due to gravity [m/s^2] (0.0 for microgravity)
         rtol: Relative error tolerance
         atol: Absolute error tolerance
+        seed: Seed for the tiny initial velocity perturbation (reproducibility)
 
     Returns:
         SimulationResult containing state trajectories and thermal metrics.
@@ -86,6 +88,7 @@ def simulate_clphp(
             g_accel=g_accel,
             t_sink_k=t_sink_k,
             t_init_k=t_init_k,
+            seed=seed,
         )
 
     n = php.n

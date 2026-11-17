@@ -46,7 +46,9 @@ class ContinuousLoopPHP:
         g_accel: float = 9.81,
         t_sink_k: float = 293.15,
         t_init_k: float = 293.15,
+        seed: int = 42,
     ):
+        self.seed = seed
         self.geo = geometry or PHPGeometry()
         self.fluid = fluid or get_fluid("acetone")
         self.g = g_accel
@@ -88,9 +90,9 @@ class ContinuousLoopPHP:
         [x_0..x_N-1, u_0..u_N-1, P_0..P_N-1, Tv_0..Tv_N-1, Twe_0..Twe_N-1, Twc_0..Twc_N-1]
         Length: 6 * N
         """
-        np.random.seed(42)
+        rng = np.random.RandomState(self.seed)  # local RNG: no global-state side effects
         x0 = np.zeros(self.n)
-        u0 = 1e-4 * (np.sin(np.linspace(0, 2 * np.pi, self.n, endpoint=False)) + 0.05 * np.random.randn(self.n))
+        u0 = 1e-4 * (np.sin(np.linspace(0, 2 * np.pi, self.n, endpoint=False)) + 0.05 * rng.randn(self.n))
         p0 = np.full(self.n, self.ref_state.pressure)
         tv0 = np.full(self.n, self.t_init)
         twe0 = np.full(self.n, self.t_init + 0.2)

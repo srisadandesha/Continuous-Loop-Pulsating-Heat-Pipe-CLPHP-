@@ -35,3 +35,17 @@ def test_ode_rhs_computation():
     assert len(dydt) == len(y0)
     assert not np.any(np.isnan(dydt))
     assert not np.any(np.isinf(dydt))
+
+
+def test_initial_state_is_seeded_and_does_not_touch_global_rng():
+    import numpy as np
+    from clphp.physics.ode_system import ContinuousLoopPHP
+
+    a = ContinuousLoopPHP(seed=7).initial_state_vector()
+    np.random.seed(123)
+    before = np.random.get_state()[1].copy()
+    b = ContinuousLoopPHP(seed=7).initial_state_vector()
+    c = ContinuousLoopPHP(seed=8).initial_state_vector()
+    assert np.array_equal(a, b)          # same seed -> identical initial state
+    assert not np.array_equal(a, c)      # different seed -> different perturbation
+    assert np.array_equal(before, np.random.get_state()[1])  # global RNG untouched

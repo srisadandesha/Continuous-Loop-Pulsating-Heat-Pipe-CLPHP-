@@ -49,6 +49,7 @@ class DatasetConfig:
     solver_method: str = "RK23"
     rtol: float = 1e-2
     atol: float = 1e-3
+    seed: int = 42  # seeds the initial velocity perturbation of every run
 
     def sim_settings(self) -> Dict[str, Any]:
         """Generation settings as a dict (used to re-time the solver in benchmarks)."""
@@ -121,6 +122,7 @@ def generate_parametric_dataset(
                             solver_method=cfg.solver_method,
                             rtol=cfg.rtol,
                             atol=cfg.atol,
+                            seed=cfg.seed,
                         )
 
                         # Extract time series
