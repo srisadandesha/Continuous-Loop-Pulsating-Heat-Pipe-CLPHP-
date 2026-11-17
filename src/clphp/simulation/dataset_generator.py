@@ -46,9 +46,9 @@ class DatasetConfig:
     t_step: float = 0.05
     n_turns: int = 5
     d_inner: float = 0.002
-    solver_method: str = "RK23"
-    rtol: float = 1e-2
-    atol: float = 1e-3
+    solver_method: str = "Radau"
+    rtol: float = 1e-4
+    atol: float = 1e-6
     seed: int = 42  # seeds the initial velocity perturbation of every run
 
     def sim_settings(self) -> Dict[str, Any]:

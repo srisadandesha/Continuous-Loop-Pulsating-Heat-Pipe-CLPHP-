@@ -29,6 +29,7 @@ def test_training_pipeline():
         t_sim_end=0.5,
         t_step=0.05,
         n_turns=3,
+        solver_method="RK23", rtol=1e-2, atol=1e-3,  # plumbing test: speed over accuracy
     )
     dataset = generate_parametric_dataset(config=cfg, verbose=False)
     splits, windows, norm_params = build_split_windows(

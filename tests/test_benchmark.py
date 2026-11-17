@@ -11,6 +11,7 @@ def test_benchmark_reports_solver_batch1_and_batched_separately():
     cfg = DatasetConfig(
         q_in_values=[30.0, 60.0], fill_ratios=[0.5], g_accels=[9.81],
         t_sim_end=0.5, t_step=0.05, n_turns=3,
+        solver_method="RK23", rtol=1e-2, atol=1e-3,  # plumbing test: speed over accuracy
     )
     runs = generate_parametric_dataset(config=cfg, verbose=False)["runs"]
     norm = fit_norm_params(runs)

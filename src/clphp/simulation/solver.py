@@ -48,12 +48,12 @@ def simulate_clphp(
     q_in: Union[float, Callable[[float], float]] = 50.0,
     t_span: tuple[float, float] = (0.0, 20.0),
     t_eval_step: float = 0.05,
-    solver_method: str = "RK45",
+    solver_method: str = "Radau",
     t_sink_k: float = 293.15,
     t_init_k: float = 293.15,
     g_accel: float = 9.81,
-    rtol: float = 1e-2,
-    atol: float = 1e-3,
+    rtol: float = 1e-4,
+    atol: float = 1e-6,
     seed: int = 42,
 ) -> SimulationResult:
     """
@@ -66,7 +66,8 @@ def simulate_clphp(
         q_in: Heat load [W], either constant float or time-dependent callable Q(t)
         t_span: (t_start, t_end) [s]
         t_eval_step: Output sampling interval [s]
-        solver_method: Scipy ODE integrator ('RK45', 'Radau', 'BDF', 'LSODA')
+        solver_method: Scipy ODE integrator: 'Radau' (default; implicit, handles the stiff system),
+            'BDF', 'LSODA', 'RK23', 'RK45'. NOTE: LSODA at rtol=1e-4 was >10x slower than Radau here.
         t_sink_k: Heat sink temperature [K]
         t_init_k: Initial loop temperature [K]
         g_accel: Acceleration due to gravity [m/s^2] (0.0 for microgravity)

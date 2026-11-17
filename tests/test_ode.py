@@ -49,3 +49,14 @@ def test_initial_state_is_seeded_and_does_not_touch_global_rng():
     assert np.array_equal(a, b)          # same seed -> identical initial state
     assert not np.array_equal(a, c)      # different seed -> different perturbation
     assert np.array_equal(before, np.random.get_state()[1])  # global RNG untouched
+
+
+def test_default_solver_is_radau_with_requested_tolerances():
+    import inspect
+    from clphp.simulation.solver import simulate_clphp
+    from clphp.simulation.dataset_generator import DatasetConfig
+
+    sig = inspect.signature(simulate_clphp).parameters
+    assert (sig["solver_method"].default, sig["rtol"].default, sig["atol"].default) == ("Radau", 1e-4, 1e-6)
+    cfg = DatasetConfig()
+    assert (cfg.solver_method, cfg.rtol, cfg.atol) == ("Radau", 1e-4, 1e-6)

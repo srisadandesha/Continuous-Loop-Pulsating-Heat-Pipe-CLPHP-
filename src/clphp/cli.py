@@ -23,7 +23,7 @@ from clphp.analysis.plotting import (
     plot_surrogate_comparison,
     plot_training_history,
 )
-from clphp.models.evaluation import evaluate_one_step, evaluate_rollout, format_comparison
+from clphp.models.evaluation import report_test_runs
 from clphp.analysis.benchmark import benchmark_speed, format_benchmark
 
 
@@ -79,12 +79,17 @@ def cmd_generate_data(args: argparse.Namespace):
         t_sim_end=args.time,
         t_step=args.dt,
         n_turns=args.turns,
+        solver_method=args.solver,
+        rtol=args.rtol,
+        atol=args.atol,
+        seed=args.seed,
     )
 
     dataset = generate_parametric_dataset(
         config=cfg,
         output_path=args.output,
         verbose=True,
+        n_jobs=args.jobs,
     )
     print(f"Successfully generated {dataset['n_runs']} simulation runs.")
 
@@ -123,7 +128,12 @@ def cmd_train(args: argparse.Namespace):
         lr=args.lr,
         save_path=args.save_model,
         verbose=True,
+        use_physics=not args.no_physics,
+        seed=args.seed,
     )
+
+    print("\nHeld-out test-run evaluation (per channel, physical units):")
+    print(report_test_runs(model, splits, norm_params, args.seq_len, args.horizon))
 
     if args.plot_loss:
         os.makedirs(os.path.dirname(os.path.abspath(args.plot_loss)), exist_ok=True)
@@ -142,7 +152,7 @@ def cmd_demo(args: argparse.Namespace):
     # 1. Physics Simulation
     print("Step 1: Running High-Fidelity Multi-Turn CLPHP ODE Simulation...")
     geo = PHPGeometry(n_turns=3, d_inner=0.002, fill_ratio=0.50)
-    res = simulate_clphp(geometry=geo, fluid_name="acetone", q_in=60.0, t_span=(0.0, 5.0), t_eval_step=0.1, solver_method="RK23")
+    res = simulate_clphp(geometry=geo, fluid_name="acetone", q_in=60.0, t_span=(0.0, 5.0), t_eval_step=0.1, solver_method="RK23", rtol=1e-2, atol=1e-3)
     
     dash_path = os.path.join(out_dir, "simulation_dashboard.png")
     plot_simulation_dashboard(res, save_path=dash_path)
@@ -158,9 +168,12 @@ def cmd_demo(args: argparse.Namespace):
         t_sim_end=4.0,
         t_step=0.1,
         n_turns=3,
+        # Quick demo only: loose RK23 tolerances are fast but NOT converged (see README)
         solver_method="RK23",
+        rtol=1e-2,
+        atol=1e-3,
     )
-    dataset = generate_parametric_dataset(config=cfg, verbose=False)
+    dataset = generate_parametric_dataset(config=cfg, verbose=False, n_jobs=min(8, os.cpu_count() or 1))
     splits, windows, norm_params = build_split_windows(
         dataset["runs"], seq_len=10, pred_horizon=3,
         train_q=[20.0, 30.0, 60.0, 90.0], val_q=[45.0],
@@ -193,13 +206,7 @@ def cmd_demo(args: argparse.Namespace):
 
     # 4. Evaluate on held-out test RUNS (never seen in training/validation)
     print("\nStep 4: Evaluating on held-out test runs (per channel, physical units)...")
-    for name in ("test_interp", "test_extrap"):
-        res_one = evaluate_one_step(model, splits[name], norm_params, seq_len=10, pred_horizon=3)
-        print(f"-> {name} ({len(splits[name])} runs, {res_one['n_windows']} windows), one-step ahead:")
-        print(format_comparison("   (surrogate vs persistence baseline)", res_one))
-        res_roll = evaluate_rollout(model, splits[name], norm_params, seq_len=10, pred_horizon=3, horizons=(10, None))
-        for label, hres in res_roll["horizons"].items():
-            print(format_comparison(f"   autoregressive rollout, first {label} steps (predictions fed back):", hres))
+    print(report_test_runs(model, splits, norm_params, seq_len=10, pred_horizon=3, rollout_horizons=(10, None)))
 
     # 5. Honest speed benchmark: solve_ivp vs surrogate rollout on the same test runs
     print("\nStep 5: Wall-clock benchmark (same runs, same duration, same machine)...")
@@ -244,6 +251,11 @@ def main():
     p_gen.add_argument("--time", type=float, default=20.0, help="Duration per run [s]")
     p_gen.add_argument("--dt", type=float, default=0.05, help="Time step [s]")
     p_gen.add_argument("--turns", type=int, default=5, help="Number of turns")
+    p_gen.add_argument("--solver", type=str, default="Radau", help="scipy solve_ivp method")
+    p_gen.add_argument("--rtol", type=float, default=1e-4, help="Relative tolerance")
+    p_gen.add_argument("--atol", type=float, default=1e-6, help="Absolute tolerance")
+    p_gen.add_argument("--seed", type=int, default=42, help="Seed for initial perturbation")
+    p_gen.add_argument("--jobs", type=int, default=1, help="Parallel worker processes")
     p_gen.add_argument("-o", "--output", type=str, default="data/clphp_dataset.npz", help="Dataset save path")
 
     # Command: train
@@ -257,6 +269,8 @@ def main():
     p_train.add_argument("--seq-len", type=int, default=20, help="History lookback sequence length")
     p_train.add_argument("--horizon", type=int, default=5, help="Future prediction horizon")
     p_train.add_argument("--stride", type=int, default=2, help="Sliding window stride")
+    p_train.add_argument("--seed", type=int, default=0, help="Training seed")
+    p_train.add_argument("--no-physics", action="store_true", help="Data-only loss (ablation baseline)")
     p_train.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     p_train.add_argument("--save-model", type=str, default="models/pinn_surrogate.pt", help="Model checkpoint path")
     p_train.add_argument("--plot-loss", type=str, default="output/training_loss.png", help="Loss curve save path")

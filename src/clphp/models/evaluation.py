@@ -202,3 +202,25 @@ def evaluate_rollout(
             "persistence": per_channel_metrics(yt, yb),
         }
     return out
+
+
+def report_test_runs(
+    model,
+    splits: Dict[str, List[Dict[str, Any]]],
+    norm: Dict[str, np.ndarray],
+    seq_len: int,
+    pred_horizon: int,
+    rollout_horizons: Sequence[Optional[int]] = (20, 100, None),
+) -> str:
+    """Human-readable held-out evaluation of every ``test_*`` split (one-step + rollout vs persistence)."""
+    lines = []
+    for name in sorted(k for k in splits if k.startswith("test_") and splits[k]):
+        qs = sorted({r["q_in"] for r in splits[name]})
+        one = evaluate_one_step(model, splits[name], norm, seq_len, pred_horizon)
+        lines.append(f"-> {name}: {len(splits[name])} held-out runs (Q_in={qs} W), {one['n_windows']} windows")
+        lines.append(format_comparison("   one-step ahead (true history in, step +1 out):", one))
+        roll = evaluate_rollout(model, splits[name], norm, seq_len, pred_horizon, horizons=rollout_horizons)
+        for label, h in roll["horizons"].items():
+            lines.append(format_comparison(
+                f"   autoregressive rollout, {h['steps']} steps (predictions fed back):", h))
+    return "\n".join(lines)
