@@ -217,6 +217,8 @@ def train_surrogate(
     device: Optional[Union[str, torch.device]] = None,
     save_path: Optional[str] = None,
     verbose: bool = True,
+    use_physics: bool = True,
+    seed: Optional[int] = None,
 ) -> Tuple[PIRNNSurrogate, Dict[str, list]]:
     """
     Prepare data loaders, instantiate the model and train.
@@ -229,12 +231,19 @@ def train_surrogate(
     if len(X_train) == 0 or len(X_val) == 0:
         raise ValueError("train_surrogate needs non-empty train and validation windows")
 
+    # Reproducibility: fix every RNG that influences weights init, dropout and batch order
+    shuffle_gen = None
+    if seed is not None:
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        shuffle_gen = torch.Generator().manual_seed(seed)
+
     x_train_t = torch.tensor(X_train, dtype=torch.float32)
     y_train_t = torch.tensor(y_train, dtype=torch.float32)
     x_val_t = torch.tensor(X_val, dtype=torch.float32)
     y_val_t = torch.tensor(y_val, dtype=torch.float32)
 
-    train_loader = DataLoader(TensorDataset(x_train_t, y_train_t), batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(TensorDataset(x_train_t, y_train_t), batch_size=batch_size, shuffle=True, generator=shuffle_gen)
     val_loader = DataLoader(TensorDataset(x_val_t, y_val_t), batch_size=batch_size, shuffle=False)
 
     input_dim = X_train.shape[-1]
@@ -250,7 +259,9 @@ def train_surrogate(
         rnn_type=rnn_type,
     )
 
-    loss_fn = PhysicsInformedLoss(norm_params=norm_params)
+    # use_physics=False keeps the data MSE only (ablation baseline)
+    loss_fn = (PhysicsInformedLoss(norm_params=norm_params) if use_physics
+               else PhysicsInformedLoss.data_only(norm_params=norm_params))
     trainer = SurrogateTrainer(model=model, loss_fn=loss_fn, lr=lr, device=device)
     history = trainer.fit(train_loader, val_loader, epochs=epochs, verbose=verbose)
 
