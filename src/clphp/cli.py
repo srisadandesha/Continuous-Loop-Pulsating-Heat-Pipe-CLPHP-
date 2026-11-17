@@ -13,7 +13,8 @@ from clphp.physics.fluids import get_fluid
 from clphp.simulation.solver import simulate_clphp
 from clphp.simulation.dataset_generator import (
     generate_parametric_dataset,
-    create_sliding_windows,
+    build_split_windows,
+    runs_from_npz,
     DatasetConfig,
 )
 from clphp.models.trainer import train_surrogate, SurrogateTrainer
@@ -94,25 +95,24 @@ def cmd_train(args: argparse.Namespace):
         print(f"Error: Dataset file '{args.dataset}' does not exist.")
         sys.exit(1)
 
-    data = np.load(args.dataset, allow_pickle=True)
-    raw_runs = []
-    for i in range(len(data["features"])):
-        raw_runs.append({
-            "features": data["features"][i],
-            "targets": data["targets"][i],
-        })
-
-    X, y, norm_params = create_sliding_windows(
+    raw_runs = runs_from_npz(args.dataset)
+    splits, windows, norm_params = build_split_windows(
         raw_runs,
         seq_len=args.seq_len,
         pred_horizon=args.horizon,
         stride=args.stride,
     )
-    print(f"Generated {len(X)} sequence samples. X shape: {X.shape}, y shape: {y.shape}")
+    X_tr, y_tr = windows["train"]
+    X_va, y_va = windows["val"]
+    print("Run-level split (whole runs, never windows): " + ", ".join(
+        f"{k}={len(v)} runs" for k, v in splits.items()))
+    print(f"Train windows: {len(X_tr)} | Val windows: {len(X_va)}")
 
     model, history = train_surrogate(
-        X=X,
-        y=y,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_val=X_va,
+        y_val=y_va,
         norm_params=norm_params,
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -150,7 +150,7 @@ def cmd_demo(args: argparse.Namespace):
     # 2. Quick Dataset Generation
     print("\nStep 2: Generating Compact Parametric Dataset for Training...")
     cfg = DatasetConfig(
-        q_in_values=[30.0, 60.0, 90.0],
+        q_in_values=[20.0, 30.0, 45.0, 60.0, 75.0, 90.0, 110.0],
         fill_ratios=[0.50],
         g_accels=[0.0, 9.81],
         fluids=["acetone"],
@@ -160,16 +160,24 @@ def cmd_demo(args: argparse.Namespace):
         solver_method="RK23",
     )
     dataset = generate_parametric_dataset(config=cfg, verbose=False)
-    X, y, norm_params = create_sliding_windows(dataset["runs"], seq_len=10, pred_horizon=3)
-    print(f"-> Created {len(X)} training sequence windows.")
+    splits, windows, norm_params = build_split_windows(
+        dataset["runs"], seq_len=10, pred_horizon=3,
+        train_q=[20.0, 30.0, 60.0, 90.0], val_q=[45.0],
+        test_q={"interp": [75.0], "extrap": [110.0]},
+    )
+    X, y = windows["train"]
+    X_val, y_val = windows["val"]
+    print(f"-> Created {len(X)} train / {len(X_val)} validation windows from whole-run splits.")
 
     # 3. Train Physics-Informed LSTM
     print("\nStep 3: Training Physics-Informed LSTM Neural Surrogate...")
     model_path = os.path.join(out_dir, "pinn_surrogate.pt")
     loss_plot_path = os.path.join(out_dir, "training_loss.png")
     model, history = train_surrogate(
-        X=X,
-        y=y,
+        X_train=X,
+        y_train=y,
+        X_val=X_val,
+        y_val=y_val,
         norm_params=norm_params,
         epochs=20,
         batch_size=16,

@@ -8,7 +8,7 @@ validation tracking, learning rate decay, and model serialization.
 from __future__ import annotations
 import os
 import time
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Union
 import numpy as np
 import torch
 import torch.nn as nn
@@ -124,6 +124,7 @@ class SurrogateTrainer:
         """Train model across multiple epochs with validation tracking."""
         start_time = time.perf_counter()
         best_val_loss = float("inf")
+        best_state = None
 
         for epoch in range(1, epochs + 1):
             train_metrics = self.train_epoch(train_loader)
@@ -140,6 +141,7 @@ class SurrogateTrainer:
 
             if val_metrics["val_loss"] < best_val_loss:
                 best_val_loss = val_metrics["val_loss"]
+                best_state = {k: v.detach().clone() for k, v in self.model.state_dict().items()}
 
             if verbose and (epoch % max(1, epochs // 10) == 0 or epoch == epochs or epoch == 1):
                 print(
@@ -148,6 +150,10 @@ class SurrogateTrainer:
                     f"Val Loss: {val_metrics['val_loss']:.6f} | "
                     f"LR: {current_lr:.2e}"
                 )
+
+        # Restore the weights with the best loss on the held-out *validation runs*
+        if best_state is not None:
+            self.model.load_state_dict(best_state)
 
         elapsed = time.perf_counter() - start_time
         if verbose:
@@ -195,8 +201,10 @@ class SurrogateTrainer:
 
 
 def train_surrogate(
-    X: np.ndarray,
-    y: np.ndarray,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
     norm_params: Dict[str, Any],
     epochs: int = 40,
     batch_size: int = 32,
@@ -209,26 +217,27 @@ def train_surrogate(
     verbose: bool = True,
 ) -> Tuple[PIRNNSurrogate, Dict[str, list]]:
     """
-    High-level convenience function to prepare data loaders, instantiate model, and train.
+    Prepare data loaders, instantiate the model and train.
+
+    The caller supplies windows that were already cut from *separate* train
+    and validation runs (see ``split_runs_by_q_in``).  No random window-level
+    split happens here: shuffling windows from the same run into both train
+    and validation sets leaks information between them.
     """
-    # 80/20 train/val split
-    n_samples = len(X)
-    n_train = int(n_samples * 0.8)
-    indices = np.random.RandomState(42).permutation(n_samples)
+    if len(X_train) == 0 or len(X_val) == 0:
+        raise ValueError("train_surrogate needs non-empty train and validation windows")
 
-    train_idx, val_idx = indices[:n_train], indices[n_train:]
-
-    x_train_t = torch.tensor(X[train_idx], dtype=torch.float32)
-    y_train_t = torch.tensor(y[train_idx], dtype=torch.float32)
-    x_val_t = torch.tensor(X[val_idx], dtype=torch.float32)
-    y_val_t = torch.tensor(y[val_idx], dtype=torch.float32)
+    x_train_t = torch.tensor(X_train, dtype=torch.float32)
+    y_train_t = torch.tensor(y_train, dtype=torch.float32)
+    x_val_t = torch.tensor(X_val, dtype=torch.float32)
+    y_val_t = torch.tensor(y_val, dtype=torch.float32)
 
     train_loader = DataLoader(TensorDataset(x_train_t, y_train_t), batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(TensorDataset(x_val_t, y_val_t), batch_size=batch_size, shuffle=False)
 
-    input_dim = X.shape[-1]
-    pred_horizon = y.shape[1]
-    output_dim = y.shape[-1]
+    input_dim = X_train.shape[-1]
+    pred_horizon = y_train.shape[1]
+    output_dim = y_train.shape[-1]
 
     model = PIRNNSurrogate(
         input_dim=input_dim,

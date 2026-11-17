@@ -9,7 +9,7 @@ import os
 import numpy as np
 import torch
 
-from clphp.simulation.dataset_generator import generate_parametric_dataset, create_sliding_windows, DatasetConfig
+from clphp.simulation.dataset_generator import generate_parametric_dataset, build_split_windows, DatasetConfig
 from clphp.models.trainer import train_surrogate
 from clphp.analysis.plotting import plot_training_history, plot_surrogate_comparison
 from clphp.analysis.metrics import evaluate_surrogate_accuracy
@@ -24,7 +24,7 @@ def main():
 
     # 1. Generate Parametric Training Dataset
     cfg = DatasetConfig(
-        q_in_values=[30.0, 60.0, 90.0],
+        q_in_values=[20.0, 30.0, 45.0, 60.0, 70.0, 90.0, 110.0],
         fill_ratios=[0.50],
         g_accels=[9.81],
         fluids=["acetone"],
@@ -38,14 +38,22 @@ def main():
     # 2. Windowing
     seq_len = 10
     pred_horizon = 3
-    X, y, norm_params = create_sliding_windows(dataset["runs"], seq_len=seq_len, pred_horizon=pred_horizon)
-    print(f"Dataset generated: {len(X)} sequence samples. X: {X.shape}, y: {y.shape}")
+    splits, windows, norm_params = build_split_windows(
+        dataset["runs"], seq_len=seq_len, pred_horizon=pred_horizon,
+        train_q=[20.0, 30.0, 60.0, 90.0], val_q=[45.0],
+        test_q={"interp": [70.0], "extrap": [110.0]},
+    )
+    X, y = windows["train"]
+    X_val, y_val = windows["val"]
+    print(f"Dataset generated: {len(X)} train / {len(X_val)} val windows (split by whole run). X: {X.shape}, y: {y.shape}")
 
     # 3. Train PI-LSTM
     model_path = "output/pinn_lstm_model.pt"
     model, history = train_surrogate(
-        X=X,
-        y=y,
+        X_train=X,
+        y_train=y,
+        X_val=X_val,
+        y_val=y_val,
         norm_params=norm_params,
         epochs=25,
         batch_size=16,

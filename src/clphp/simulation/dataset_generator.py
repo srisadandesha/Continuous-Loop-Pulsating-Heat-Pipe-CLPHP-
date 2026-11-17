@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import json
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Sequence, Tuple, Dict, Any
 import numpy as np
 from tqdm import tqdm
 
@@ -18,6 +18,20 @@ from clphp.physics.geometry import PHPGeometry
 from clphp.physics.fluids import get_fluid
 from clphp.physics.ode_system import ContinuousLoopPHP
 from clphp.simulation.solver import simulate_clphp, SimulationResult
+
+
+# ---------------------------------------------------------------------------
+# Run-level split definition.  Whole simulation runs (identified by their Q_in)
+# are assigned to exactly one split, so no window of a test run is ever seen
+# in training.  75 W is interpolation (between 60 and 100 W); 160 W is
+# extrapolation (above the 130 W training maximum).
+# ---------------------------------------------------------------------------
+DEFAULT_TRAIN_Q: Tuple[float, ...] = (15.0, 20.0, 30.0, 50.0, 60.0, 100.0, 130.0)
+DEFAULT_VAL_Q: Tuple[float, ...] = (40.0, 115.0)
+DEFAULT_TEST_Q: Dict[str, Tuple[float, ...]] = {
+    "interp": (75.0,),
+    "extrap": (160.0,),
+}
 
 
 @dataclass
@@ -36,7 +50,9 @@ class DatasetConfig:
 
     def __post_init__(self):
         if self.q_in_values is None:
-            self.q_in_values = [15.0, 30.0, 50.0, 75.0, 100.0, 130.0]
+            self.q_in_values = sorted(
+                set(DEFAULT_TRAIN_Q) | set(DEFAULT_VAL_Q) | {q for v in DEFAULT_TEST_Q.values() for q in v}
+            )
         if self.fill_ratios is None:
             self.fill_ratios = [0.40, 0.50, 0.60]
         if self.sink_temps is None:
@@ -174,38 +190,41 @@ def create_sliding_windows(
     seq_len: int = 20,
     pred_horizon: int = 5,
     stride: int = 2,
-) -> Tuple[np.ndarray, np.ndarray, Dict[str, Tuple[float, float]]]:
+    norm_params: Optional[Dict[str, np.ndarray]] = None,
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, np.ndarray]]:
     """
     Transform raw simulation sequences into supervised (X, y) sliding window tensors.
 
+    Windows never span two runs.  Call this *after* assigning runs to splits.
+
     Parameters:
-        runs_data: List of run dictionary items containing 'features' and 'targets'
+        runs_data: List of run dictionaries containing 'features' and 'targets'
         seq_len: Past history window size (lookback)
         pred_horizon: Future forecast steps
         stride: Step size between consecutive sliding windows
+        norm_params: Normalization statistics to apply.  Pass the statistics
+            fitted on the *training* runs when windowing validation/test runs.
+            If None, statistics are fitted on ``runs_data`` itself (only
+            correct when ``runs_data`` are the training runs).
 
     Returns:
         X: Tensor of shape (N_samples, seq_len, n_features)
         y: Tensor of shape (N_samples, pred_horizon, n_targets)
-        norm_params: Dict containing mean and std for normalization
+        norm_params: The statistics used for normalization
     """
     x_list, y_list = [], []
 
-    # Concatenate all features to compute global normalization stats
-    all_feat = np.concatenate([r["features"] for r in runs_data], axis=0)
-    all_targ = np.concatenate([r["targets"] for r in runs_data], axis=0)
-
-    feat_mean = np.mean(all_feat, axis=0)
-    feat_std = np.std(all_feat, axis=0) + 1e-8
-    targ_mean = np.mean(all_targ, axis=0)
-    targ_std = np.std(all_targ, axis=0) + 1e-8
-
-    norm_params = {
-        "feat_mean": feat_mean,
-        "feat_std": feat_std,
-        "targ_mean": targ_mean,
-        "targ_std": targ_std,
-    }
+    if norm_params is None:
+        all_feat = np.concatenate([r["features"] for r in runs_data], axis=0)
+        all_targ = np.concatenate([r["targets"] for r in runs_data], axis=0)
+        norm_params = {
+            "feat_mean": np.mean(all_feat, axis=0),
+            "feat_std": np.std(all_feat, axis=0) + 1e-8,
+            "targ_mean": np.mean(all_targ, axis=0),
+            "targ_std": np.std(all_targ, axis=0) + 1e-8,
+        }
+    feat_mean, feat_std = norm_params["feat_mean"], norm_params["feat_std"]
+    targ_mean, targ_std = norm_params["targ_mean"], norm_params["targ_std"]
 
     for r in runs_data:
         f_norm = (r["features"] - feat_mean) / feat_std
@@ -219,7 +238,95 @@ def create_sliding_windows(
             x_list.append(x_window)
             y_list.append(y_window)
 
-    X = np.array(x_list, dtype=np.float32)
-    y = np.array(y_list, dtype=np.float32)
+    n_f, n_t = len(feat_mean), len(targ_mean)
+    X = np.array(x_list, dtype=np.float32).reshape(-1, seq_len, n_f)
+    y = np.array(y_list, dtype=np.float32).reshape(-1, pred_horizon, n_t)
 
     return X, y, norm_params
+
+
+def split_runs_by_q_in(
+    runs_data: List[Dict[str, Any]],
+    train_q: Sequence[float] = DEFAULT_TRAIN_Q,
+    val_q: Sequence[float] = DEFAULT_VAL_Q,
+    test_q: Optional[Dict[str, Sequence[float]]] = None,
+    tol: float = 1e-6,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Assign whole simulation runs to train / val / test splits by their Q_in value.
+
+    Every run (all fill ratios, gravity levels, sink temperatures sharing a
+    Q_in) goes to exactly one split; windows are only cut *after* this
+    assignment.  ``test_q`` maps a test-set name (e.g. ``"interp"``,
+    ``"extrap"``) to its Q_in values; the result has keys ``"train"``,
+    ``"val"`` and ``"test_<name>"``.
+
+    Raises ValueError if the Q_in sets overlap or a run's Q_in is in no split.
+    """
+    test_q = DEFAULT_TEST_Q if test_q is None else test_q
+    assignment: Dict[str, Sequence[float]] = {"train": train_q, "val": val_q}
+    for name, qs in test_q.items():
+        assignment[f"test_{name}"] = qs
+
+    names = list(assignment)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            clash = [x for x in assignment[a] for y in assignment[b] if abs(x - y) <= tol]
+            if clash:
+                raise ValueError(f"Q_in values {clash} appear in both '{a}' and '{b}' splits")
+
+    splits: Dict[str, List[Dict[str, Any]]] = {n: [] for n in names}
+    for r in runs_data:
+        q = float(r["q_in"])
+        owner = [n for n in names if any(abs(q - x) <= tol for x in assignment[n])]
+        if not owner:
+            raise ValueError(f"Run with Q_in={q} W is not assigned to any split")
+        splits[owner[0]].append(r)
+    return splits
+
+
+def runs_from_npz(path: str) -> List[Dict[str, Any]]:
+    """Load runs saved by generate_parametric_dataset, recovering per-run metadata."""
+    data = np.load(path, allow_pickle=True)
+    runs = []
+    for i in range(len(data["features"])):
+        f = data["features"][i]
+        runs.append({
+            "run_id": i,
+            "q_in": float(f[0, 0]),
+            "t_sink": float(f[0, 1]),
+            "fill_ratio": float(f[0, 2]),
+            "g_accel": float(f[0, 3]),
+            "features": f,
+            "targets": data["targets"][i],
+        })
+    return runs
+
+
+def build_split_windows(
+    runs_data: List[Dict[str, Any]],
+    seq_len: int = 20,
+    pred_horizon: int = 5,
+    stride: int = 2,
+    train_q: Sequence[float] = DEFAULT_TRAIN_Q,
+    val_q: Sequence[float] = DEFAULT_VAL_Q,
+    test_q: Optional[Dict[str, Sequence[float]]] = None,
+) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Tuple[np.ndarray, np.ndarray]], Dict[str, np.ndarray]]:
+    """
+    Split runs by Q_in first, then cut windows per split.
+
+    Returns (run_splits, windows, norm_params) where ``windows[name] = (X, y)``
+    for every split that contains runs.  Normalization statistics are fitted
+    on the training windows' runs and applied to validation and test runs.
+    """
+    splits = split_runs_by_q_in(runs_data, train_q, val_q, test_q)
+    if not splits["train"] or not splits["val"]:
+        raise ValueError("Both the train and val splits must contain at least one run")
+    X_tr, y_tr, norm = create_sliding_windows(splits["train"], seq_len, pred_horizon, stride)
+    windows = {"train": (X_tr, y_tr)}
+    for name, runs in splits.items():
+        if name == "train" or not runs:
+            continue
+        X, y, _ = create_sliding_windows(runs, seq_len, pred_horizon, stride, norm_params=norm)
+        windows[name] = (X, y)
+    return splits, windows, norm
