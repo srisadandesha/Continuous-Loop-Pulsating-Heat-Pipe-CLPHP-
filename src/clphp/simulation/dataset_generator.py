@@ -121,7 +121,10 @@ def generate_parametric_dataset(
                         v_rms_t = np.sqrt(np.mean(res.velocities ** 2, axis=1))
                         r_th = res.thermal_resistance
 
-                        # Features: [Q_in, T_sink, FillRatio, g, Time, T_e, T_c, P_mean, V_rms]
+                        # Features: [Q_in, T_sink, FillRatio, g, Time, T_e, T_c]
+                        # Exogenous: cols 0-4 (known in advance). States: cols 5-6 (T_e, T_c).
+                        # P_mean / V_rms are NOT inputs: the surrogate does not predict them,
+                        # so they could not be fed back during autoregressive rollout.
                         features_matrix = np.column_stack([
                             np.full_like(t_arr, q),
                             np.full_like(t_arr, t_sink),
@@ -130,8 +133,6 @@ def generate_parametric_dataset(
                             t_arr,
                             t_e,
                             t_c,
-                            p_mean,
-                            v_rms_t,
                         ])
 
                         # Targets: [T_e, T_c, R_th]
@@ -150,6 +151,7 @@ def generate_parametric_dataset(
                             "t_sink": t_sink,
                             "features": features_matrix,
                             "targets": targets_matrix,
+                            "aux": {"p_mean": p_mean, "v_rms": v_rms_t},
                             "steady_r_th": res.steady_state_r_th,
                             "dom_freq_hz": res.oscillation_frequency_hz,
                         })
@@ -166,7 +168,7 @@ def generate_parametric_dataset(
     dataset = {
         "runs": runs_data,
         "n_runs": len(runs_data),
-        "feature_names": ["q_in", "t_sink", "fill_ratio", "g_accel", "time", "t_e", "t_c", "p_mean", "v_rms"],
+        "feature_names": ["q_in", "t_sink", "fill_ratio", "g_accel", "time", "t_e", "t_c"],
         "target_names": ["t_e", "t_c", "r_th"],
     }
 

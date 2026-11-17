@@ -21,7 +21,7 @@ class PIRNNSurrogate(nn.Module):
 
     def __init__(
         self,
-        input_dim: int = 9,
+        input_dim: int = 7,
         hidden_dim: int = 64,
         num_layers: int = 2,
         output_dim: int = 3,

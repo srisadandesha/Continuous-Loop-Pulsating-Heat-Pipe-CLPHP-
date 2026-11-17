@@ -86,8 +86,6 @@ def main():
         t_arr,
         t_e,
         t_c,
-        p_mean,
-        v_rms,
     ])
     raw_test_targets = np.column_stack([t_e, t_c, test_res.thermal_resistance])
 
