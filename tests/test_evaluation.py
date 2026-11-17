@@ -88,3 +88,11 @@ def test_evaluate_rollout_reports_horizons_and_baseline():
     assert set(res["horizons"]) == {"4", "full"}
     assert res["horizons"]["full"]["steps"] == 15
     assert set(res["horizons"]["4"]["persistence"]) == set(CHANNELS)
+
+
+def test_rollout_horizons_beyond_run_length_collapse_to_full():
+    runs = _fake_runs([30.0, 60.0], fill_ratios=(0.5,), steps=20)
+    norm = fit_norm_params(runs)
+    model = PIRNNSurrogate(input_dim=9, hidden_dim=8, num_layers=1, output_dim=3, pred_horizon=3)
+    res = evaluate_rollout(model, runs, norm, seq_len=5, pred_horizon=3, horizons=(4, 100, None))
+    assert list(res["horizons"]) == ["4", "full"]  # 100 > 15 available steps: no duplicate row

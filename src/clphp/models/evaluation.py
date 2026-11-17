@@ -190,6 +190,11 @@ def evaluate_rollout(
         base.append(persistence_rollout(feats, seq_len))
 
     out: Dict[str, Any] = {"n_runs": len(runs), "horizons": {}}
+    n_avail = min(t.shape[1] for t in truth)
+    # A horizon at or beyond the available rollout length is the same as 'full': skip duplicates
+    horizons = [h for h in horizons if h is None or h < n_avail]
+    if None not in horizons:
+        horizons.append(None)
     for h in horizons:
         label = "full" if h is None else str(h)
         parts = [(t[:, :h], s[:, :h], b[:, :h]) for t, s, b in zip(truth, sur, base)]

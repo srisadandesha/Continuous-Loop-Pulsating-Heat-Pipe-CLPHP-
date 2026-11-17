@@ -1,0 +1,51 @@
+-> test_extrap: 6 held-out runs (Q_in=[160.0] W), 342 windows
+   one-step ahead (true history in, step +1 out):
+   T_e   surrogate   R2=  0.8567  RMSE=8.318 K  MAE=6.629 K
+   T_e   persistence R2=  0.9962  RMSE=1.359 K  MAE=1.34 K
+   T_c   surrogate   R2=  0.8920  RMSE=7.331 K  MAE=5.788 K
+   T_c   persistence R2=  0.9961  RMSE=1.391 K  MAE=1.368 K
+   R_th  surrogate   R2=  0.7500  RMSE=0.001845 K/W  MAE=0.001154 K/W
+   R_th  persistence R2=  0.9747  RMSE=0.0005865 K/W  MAE=0.0002665 K/W
+   autoregressive rollout, 20 steps (predictions fed back):
+   T_e   surrogate   R2=  0.8580  RMSE=3.423 K  MAE=2.881 K
+   T_e   persistence R2= -3.4241  RMSE=19.11 K  MAE=16.87 K
+   T_c   surrogate   R2=  0.8912  RMSE=3.113 K  MAE=2.62 K
+   T_c   persistence R2= -3.5293  RMSE=20.08 K  MAE=17.75 K
+   R_th  surrogate   R2=  0.5933  RMSE=0.002565 K/W  MAE=0.001837 K/W
+   R_th  persistence R2= -1.6137  RMSE=0.006502 K/W  MAE=0.005365 K/W
+   autoregressive rollout, 61 steps (predictions fed back):
+   T_e   surrogate   R2=  0.7605  RMSE=11.31 K  MAE=9.51 K
+   T_e   persistence R2= -3.7039  RMSE=50.14 K  MAE=44.51 K
+   T_c   surrogate   R2=  0.7947  RMSE=10.62 K  MAE=8.896 K
+   T_c   persistence R2= -3.8287  RMSE=51.5 K  MAE=45.86 K
+   R_th  surrogate   R2=  0.7586  RMSE=0.001775 K/W  MAE=0.001128 K/W
+   R_th  persistence R2= -4.7519  RMSE=0.008666 K/W  MAE=0.007997 K/W
+-> test_interp: 6 held-out runs (Q_in=[75.0] W), 342 windows
+   one-step ahead (true history in, step +1 out):
+   T_e   surrogate   R2=  0.9921  RMSE=1.043 K  MAE=0.8026 K
+   T_e   persistence R2=  0.9964  RMSE=0.7028 K  MAE=0.693 K
+   T_c   surrogate   R2=  0.9868  RMSE=1.359 K  MAE=1.19 K
+   T_c   persistence R2=  0.9963  RMSE=0.7188 K  MAE=0.7069 K
+   R_th  surrogate   R2=  0.9691  RMSE=0.0008761 K/W  MAE=0.0005807 K/W
+   R_th  persistence R2=  0.9904  RMSE=0.0004871 K/W  MAE=0.0002934 K/W
+   autoregressive rollout, 20 steps (predictions fed back):
+   T_e   surrogate   R2=  0.9587  RMSE=1.185 K  MAE=0.9254 K
+   T_e   persistence R2= -1.9323  RMSE=9.98 K  MAE=8.853 K
+   T_c   surrogate   R2=  0.9608  RMSE=1.17 K  MAE=0.8979 K
+   T_c   persistence R2= -2.0976  RMSE=10.39 K  MAE=9.236 K
+   R_th  surrogate   R2=  0.8648  RMSE=0.001219 K/W  MAE=0.000988 K/W
+   R_th  persistence R2= -3.1488  RMSE=0.006752 K/W  MAE=0.005142 K/W
+   autoregressive rollout, 61 steps (predictions fed back):
+   T_e   surrogate   R2=  0.9794  RMSE=1.764 K  MAE=1.415 K
+   T_e   persistence R2= -3.4434  RMSE=25.9 K  MAE=23.01 K
+   T_c   surrogate   R2=  0.9715  RMSE=2.093 K  MAE=1.697 K
+   T_c   persistence R2= -3.5919  RMSE=26.56 K  MAE=23.65 K
+   R_th  surrogate   R2=  0.9753  RMSE=0.0007827 K/W  MAE=0.0005441 K/W
+   R_th  persistence R2= -3.3936  RMSE=0.01043 K/W  MAE=0.008094 K/W
+   autoregressive rollout, 61 steps (predictions fed back):
+   T_e   surrogate   R2=  0.9794  RMSE=1.764 K  MAE=1.415 K
+   T_e   persistence R2= -3.4434  RMSE=25.9 K  MAE=23.01 K
+   T_c   surrogate   R2=  0.9715  RMSE=2.093 K  MAE=1.697 K
+   T_c   persistence R2= -3.5919  RMSE=26.56 K  MAE=23.65 K
+   R_th  surrogate   R2=  0.9753  RMSE=0.0007827 K/W  MAE=0.0005441 K/W
+   R_th  persistence R2= -3.3936  RMSE=0.01043 K/W  MAE=0.008094 K/W

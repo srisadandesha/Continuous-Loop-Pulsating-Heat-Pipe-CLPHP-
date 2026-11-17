@@ -1,0 +1,4 @@
+   Solver (RK23, rtol=0.01, atol=0.001): 16.18 s/run for 4 s simulated (real-time factor 0.25x, 2 runs timed)
+   Surrogate rollout, batch=1:  17.74 ms/run -> speedup 912x (real-time factor 172x)
+   Surrogate rollout, batched (12 runs): 2.01 ms/run -> speedup 8054x (real-time factor 1518x)
+   Single forward pass: 1.168 ms  =>  legacy 'real-time factor' 1000/latency = 856 (inference rate, not a speedup over the solver)
