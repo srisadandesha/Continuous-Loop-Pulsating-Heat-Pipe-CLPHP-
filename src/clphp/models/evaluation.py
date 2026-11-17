@@ -110,3 +110,95 @@ def evaluate_one_step(
         "surrogate_horizon": per_channel_metrics(y_true, y_pred),
         "persistence_horizon": per_channel_metrics(y_true, y_base),
     }
+
+
+@torch.no_grad()
+def rollout_batch(
+    model,
+    feats_true: np.ndarray,
+    norm: Dict[str, np.ndarray],
+    seq_len: int,
+    pred_horizon: int,
+) -> np.ndarray:
+    """
+    Multi-step autoregressive rollout, a batch of equal-length runs at once.
+
+    The model sees the first ``seq_len`` TRUE rows of each run, then predicts
+    ``pred_horizon`` steps; those predictions (T_e, T_c) are written back into
+    the input window and the loop repeats until the end of the run. Exogenous
+    inputs (Q_in, T_sink, fill ratio, g, time) are the known schedule and are
+    taken from the run; no ground-truth T_e / T_c is used after the seed window.
+
+    Parameters:
+        feats_true: physical-unit features, shape (B, T, F)
+    Returns:
+        physical predictions (B, T - seq_len, 3) = [T_e, T_c, R_th]
+    """
+    model.eval()
+    dev = next(model.parameters()).device
+    B, T, _ = feats_true.shape
+    n_total = T - seq_len
+    if n_total <= 0:
+        raise ValueError("Runs must be longer than seq_len")
+    preds = np.empty((B, n_total, len(CHANNELS)))
+    window = feats_true[:, :seq_len].copy()
+    pos = 0
+    while pos < n_total:
+        x = torch.as_tensor((window - norm["feat_mean"]) / norm["feat_std"], dtype=torch.float32, device=dev)
+        out = denorm_targets(model(x).cpu().numpy(), norm)  # (B, H, 3)
+        k = min(pred_horizon, n_total - pos)
+        preds[:, pos:pos + k] = out[:, :k]
+        new = feats_true[:, seq_len + pos: seq_len + pos + k].copy()
+        new[:, :, COL_TE] = out[:, :k, 0]  # feed predictions back
+        new[:, :, COL_TC] = out[:, :k, 1]
+        window = np.concatenate([window, new], axis=1)[:, -seq_len:]
+        pos += k
+    return preds
+
+
+def persistence_rollout(feats_true: np.ndarray, seq_len: int) -> np.ndarray:
+    """Hold the last observed seed-window values for the entire rollout (B, T-seq_len, 3)."""
+    last = feats_true[:, seq_len - 1]
+    base = np.stack([last[:, COL_TE], last[:, COL_TC],
+                     physical_r_th(last[:, COL_TE], last[:, COL_TC], last[:, COL_Q])], axis=-1)
+    return np.repeat(base[:, None, :], feats_true.shape[1] - seq_len, axis=1)
+
+
+def evaluate_rollout(
+    model,
+    runs: List[Dict[str, Any]],
+    norm: Dict[str, np.ndarray],
+    seq_len: int,
+    pred_horizon: int,
+    horizons: Sequence[Optional[int]] = (20, 100, None),
+) -> Dict[str, Any]:
+    """
+    Autoregressive rollout on whole held-out runs vs. the persistence baseline.
+
+    ``horizons`` are numbers of rolled-out steps over which errors are scored
+    (``None`` = the whole remaining run). Metrics are per channel, physical units.
+    """
+    by_len: Dict[int, List[Dict[str, Any]]] = {}
+    for r in runs:
+        by_len.setdefault(len(r["features"]), []).append(r)
+
+    truth, sur, base = [], [], []
+    for T, group in by_len.items():
+        feats = np.stack([r["features"] for r in group])
+        truth.append(np.stack([r["targets"][seq_len:] for r in group]))
+        sur.append(rollout_batch(model, feats, norm, seq_len, pred_horizon))
+        base.append(persistence_rollout(feats, seq_len))
+
+    out: Dict[str, Any] = {"n_runs": len(runs), "horizons": {}}
+    for h in horizons:
+        label = "full" if h is None else str(h)
+        parts = [(t[:, :h], s[:, :h], b[:, :h]) for t, s, b in zip(truth, sur, base)]
+        yt = np.concatenate([p[0].reshape(-1, 3) for p in parts])
+        ys = np.concatenate([p[1].reshape(-1, 3) for p in parts])
+        yb = np.concatenate([p[2].reshape(-1, 3) for p in parts])
+        out["horizons"][label] = {
+            "steps": int(min(t.shape[1] if h is None else min(h, t.shape[1]) for t in truth)),
+            "surrogate": per_channel_metrics(yt, ys),
+            "persistence": per_channel_metrics(yt, yb),
+        }
+    return out

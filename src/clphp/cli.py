@@ -23,7 +23,7 @@ from clphp.analysis.plotting import (
     plot_surrogate_comparison,
     plot_training_history,
 )
-from clphp.models.evaluation import evaluate_one_step, format_comparison
+from clphp.models.evaluation import evaluate_one_step, evaluate_rollout, format_comparison
 
 
 def cmd_simulate(args: argparse.Namespace):
@@ -196,6 +196,9 @@ def cmd_demo(args: argparse.Namespace):
         res_one = evaluate_one_step(model, splits[name], norm_params, seq_len=10, pred_horizon=3)
         print(f"-> {name} ({len(splits[name])} runs, {res_one['n_windows']} windows), one-step ahead:")
         print(format_comparison("   (surrogate vs persistence baseline)", res_one))
+        res_roll = evaluate_rollout(model, splits[name], norm_params, seq_len=10, pred_horizon=3, horizons=(10, None))
+        for label, hres in res_roll["horizons"].items():
+            print(format_comparison(f"   autoregressive rollout, first {label} steps (predictions fed back):", hres))
 
 
     print("\n=================================================================")
