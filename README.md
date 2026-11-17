@@ -21,7 +21,7 @@ An advanced computational physics engine and **Physics-Informed Recurrent Neural
 - **Physics-Informed Neural Network (PINN) Surrogate**:
   - Sequence-to-sequence LSTM/GRU forecasting future temperatures ($T_{evap}, T_{cond}$) and thermal resistance ($R_{th}$).
   - Custom multi-objective loss enforcing thermodynamic directionality ($T_e \ge T_c$), thermal resistance definition consistency ($R_{th} \approx \Delta T / Q_{in}$), and physical non-negativity.
-  - **Inference Speedup**: **$0.066\text{ ms}$** latency per sequence window (**$>15,000\times$ faster than numerical ODE integration**), enabling real-time spacecraft flight controllers and digital twins.
+  - **Speed**: a batched autoregressive rollout is orders of magnitude faster than the ODE solver on the same CPU (measured, with batch=1 and batched reported separately; see Results). Accuracy is evaluated on held-out runs only and is limited by the simulator itself (see Limitations).
 - **Hardware Acceleration**: Automatic hardware device selection supporting **NVIDIA CUDA**, **AMD DirectML** (`torch-directml`), **Apple MPS**, or **CPU**.
 - **CoolProp & NIST Fluid Engine**: Full thermodynamic property tables for **Acetone**, **Ammonia**, **Water**, **Ethanol**, **Methanol**, and **R134a**.
 
@@ -108,20 +108,29 @@ mechproject/
 │       │   └── dataset_generator.py   # Parametric grid sweep & windowing
 │       ├── models/
 │       │   ├── rnn_surrogate.py       # PyTorch LSTM / GRU sequence models
-│       │   ├── pinn_loss.py           # Physics-informed thermodynamic loss functions
-│       │   └── trainer.py             # Training loop, validation & checkpointing
+│       │   ├── pinn_loss.py           # Physics loss in physical units (R_th = dT/Q_in, R_th >= 0)
+│       │   ├── trainer.py             # Training loop, validation & checkpointing (seeded)
+│       │   ├── evaluation.py          # Held-out per-channel metrics, persistence, rollout
+│       │   └── ablation.py            # With/without physics terms, multi-seed
 │       └── analysis/
 │           ├── metrics.py             # Thermal resistance, FFT, startup detection
+│           ├── benchmark.py           # solve_ivp vs surrogate wall-clock benchmark
 │           └── plotting.py            # 4-panel diagnostic dashboards & visualizers
 ├── examples/
 │   ├── quickstart_simulation.py       # 5-turn Acetone CLPHP step response
 │   ├── train_pinn_surrogate.py        # Complete PINN surrogate training & eval
+│   ├── run_experiment.py              # Honest end-to-end evaluation (split, rollout, ablation, benchmark)
+│   ├── check_solver_tolerance.py      # Solver/tolerance sensitivity check
 │   └── spacecraft_transient_demo.py   # Spacecraft eclipse & microgravity simulation
 ├── tests/
 │   ├── test_fluids.py                 # Fluid property tests
 │   ├── test_geometry.py               # Geometric & capillary limit tests
 │   ├── test_ode.py                    # ODE assembly & derivative tests
 │   ├── test_models.py                 # PyTorch model shapes & PINN loss tests
+│   ├── test_split.py                  # Run-level split / normalization leakage tests
+│   ├── test_evaluation.py             # Per-channel metrics, persistence, rollout
+│   ├── test_ablation.py               # Seeded training & ablation harness
+│   ├── test_benchmark.py              # Wall-clock benchmark
 │   └── test_pipeline.py               # Full integration tests
 ├── php_project_plan.md                # Comprehensive Research & Engineering Roadmap
 ├── pyproject.toml                     # Modern package installation & metadata
@@ -142,7 +151,7 @@ pip install -e .
 ```
 
 ### 2. Run Test Suite
-Verify that all 14 unit and integration tests pass:
+Run the unit and integration tests (36):
 
 ```bash
 pytest tests/ -v
@@ -156,7 +165,7 @@ python -m clphp.cli simulate --fluid acetone --qin 50.0 --turns 5 --time 20.0 -o
 ```
 
 ### 4. Run the Full End-to-End Demo
-Runs ODE simulation, generates training data, trains the Physics-Informed LSTM, and benchmarks inference speed:
+Quick demo (loose, *unconverged* RK23 tolerances): simulates, trains, evaluates on held-out runs vs persistence, and benchmarks. Use `examples/run_experiment.py` for the full evaluation:
 
 ```bash
 python -m clphp.cli demo
@@ -164,7 +173,95 @@ python -m clphp.cli demo
 
 ---
 
-## 📊 Verified Output Artifacts & Plots
+## 🧪 Evaluation Methodology
+
+The surrogate is judged only on **whole simulation runs it never saw**, and always against a naive baseline.
+
+| Aspect | What we do |
+|---|---|
+| **Split** | By run, never by window. Windows are cut *after* runs are assigned. Held-out Q_in values (every fill ratio / gravity level of that Q_in goes together): **train** 15, 20, 30, 50, 60, 100, 130 W · **val** 40, 115 W (model selection) · **test-interp** 75 W · **test-extrap** 160 W (above the 130 W training maximum). |
+| **Normalization** | Mean/std fitted on training runs only, then applied to val/test. |
+| **Inputs** | `[Q_in, T_sink, fill ratio, g, time, T_e, T_c]`. Mean pressure and slug RMS velocity are *not* inputs, since the model does not predict them and could not feed them back during rollout. |
+| **Metrics** | R², RMSE, MAE **per channel** in physical units: T_e [K], T_c [K], R_th [K/W]. Never pooled across channels. |
+| **Baseline** | Persistence: next value = last observed value (R_th from the last observed T_e, T_c). |
+| **One-step ahead** | True history in, first predicted step out, scored on every window of every test run. |
+| **Autoregressive rollout** | Seed with the first 20 true samples, then feed the model's own T_e/T_c predictions back (exogenous Q_in, T_sink, fill, g, time come from the known schedule) until the end of the run. Scored over the first 20 steps and the full remaining run. |
+| **Speed** | Wall-clock `solve_ivp` time vs surrogate rollout time, same runs, same simulated duration, same machine (CPU). Batch=1 and batched reported separately. |
+| **Physics loss** | Predictions are de-normalized *inside* the loss; `R_th = (T_e − T_c)/Q_in` is rebuilt in physical units with `Q_in` read from the input features; `T_e ≥ T_c` and `R_th ≥ 0` are enforced in K and K/W. Ablated with vs without the physics terms over 3 seeds. |
+| **Reproducibility** | `DatasetConfig.seed` fixes the ODE initial perturbation (local RNG), training takes a `seed` (init, dropout, batch order). Parallel dataset generation is bit-identical to serial. |
+
+Reproduce:
+
+```bash
+python examples/run_experiment.py --profile medium --solver RK23 --rtol 1e-2 --atol 1e-3 \
+    --t-sim-end 4 --jobs 12 --dataset data/clphp_dataset.npz --seeds 0 1 2 --out results
+```
+
+## 📈 Results (honest numbers)
+
+Setup: 66 ODE runs (11 Q_in × 3 fill ratios × 2 gravity levels, 3 turns, 4 s, 0.05 s sampling), generated with **RK23 rtol=1e-2 / atol=1e-3** (fast, *not* converged; see Limitations). Window 20 steps, horizon 5, LSTM (2×64). Test sets: 6 runs each at 75 W (interpolation) and 160 W (extrapolation). Full output in [`results/`](results/).
+
+**Main model (seed 0), held-out runs, one-step ahead vs persistence**
+
+| Test set | Channel | Surrogate RMSE (R²) | Persistence RMSE (R²) |
+|---|---|---|---|
+| 75 W interp | T_e | 1.04 K (0.992) | **0.70 K (0.996)** |
+| 75 W interp | T_c | 1.36 K (0.987) | **0.72 K (0.996)** |
+| 75 W interp | R_th | 8.8e-4 K/W (0.969) | **4.9e-4 K/W (0.990)** |
+| 160 W extrap | T_e | 8.3 K (0.857) | **1.4 K (0.996)** |
+| 160 W extrap | T_c | 7.3 K (0.892) | **1.4 K (0.996)** |
+| 160 W extrap | R_th | 1.8e-3 K/W (0.750) | **5.9e-4 K/W (0.975)** |
+
+**One-step ahead, the surrogate does *not* beat persistence**: with a 0.05 s step the state barely moves, so "repeat the last value" is very hard to beat, and the surrogate predicts absolute values rather than increments. The high R² reported before the methodology fix was largely this effect plus window leakage.
+
+**Autoregressive rollout (predictions fed back), full remaining run (61 steps = 3 s)**
+
+| Test set | Channel | Surrogate RMSE (R²) | Persistence RMSE (R²) |
+|---|---|---|---|
+| 75 W interp | T_e | **1.76 K (0.979)** | 25.9 K (−3.44) |
+| 75 W interp | T_c | **2.09 K (0.972)** | 26.6 K (−3.59) |
+| 75 W interp | R_th | **7.8e-4 K/W (0.975)** | 1.0e-2 K/W (−3.39) |
+| 160 W extrap | T_e | **11.3 K (0.761)** | 50.1 K (−3.70) |
+| 160 W extrap | T_c | **10.6 K (0.795)** | 51.5 K (−3.83) |
+| 160 W extrap | R_th | **1.8e-3 K/W (0.759)** | 8.7e-3 K/W (−4.75) |
+
+Over multi-step horizons the system heats up and the surrogate clearly beats hold-last-value. Extrapolation to 160 W is markedly worse than interpolation (≈6× larger T_e error in rollout), so the model should not be trusted outside the training Q_in range.
+
+**Physics ablation (3 seeds, mean ± std)**, with vs without the physics loss terms (selected rows):
+
+| Test set | Evaluation | Channel | With physics | Data only |
+|---|---|---|---|---|
+| 160 W extrap | one-step | T_e | 7.9 ± 0.9 K | 10.6 ± 2.5 K |
+| 160 W extrap | rollout (full) | T_e | 10.2 ± 1.3 K | 13.2 ± 3.8 K |
+| 160 W extrap | rollout (full) | R_th | 1.85e-3 ± 5e-5 K/W | 1.67e-3 ± 2.6e-4 K/W |
+| 75 W interp | rollout (full) | T_e | 1.69 ± 0.06 K | 1.84 ± 0.69 K |
+| 75 W interp | rollout (20 steps) | T_e | 1.24 ± 0.14 K | **0.97 ± 0.11 K** |
+
+The physics terms help temperature accuracy and consistency in **extrapolation** and reduce seed-to-seed variance, but the differences are within about one standard deviation for several rows, they slightly hurt R_th, and they do not help the short-horizon interpolation rollout. With 3 seeds this is suggestive, not conclusive (full table: [`results/ablation.md`](results/ablation.md)).
+
+**Speed (CPU, same machine, 12 test runs of 4 s)**
+
+| | Time per run | Speedup vs solver | Real-time factor (simulated s per wall s) |
+|---|---|---|---|
+| `solve_ivp` (RK23, rtol 1e-2) | 16.2 s | 1× | 0.25× |
+| Surrogate rollout, batch = 1 | 17.7 ms | ≈ 910× | ≈ 170× |
+| Surrogate rollout, batched (12 runs) | 2.0 ms | ≈ 8,000× | ≈ 1,500× |
+
+A single forward pass takes 1.17 ms, so the former "1000 / latency ≈ 856×" figure is an *inference rate* (a real-time factor), **not** a speedup over the ODE solver. The solver baseline here uses loose RK23; the default Radau 1e-4/1e-6 is several times slower, which would inflate these speedups, so they are not a like-for-like claim about accuracy-matched solves.
+
+## ⚠️ Limitations
+
+- **Simulator-only validation.** Every number above compares the surrogate with *this lumped ODE model*, not with a physical pulsating heat pipe. There is **no experimental data**. The surrogate can at best be as faithful as the simulator, which is itself unvalidated against experiments.
+- **The ODE solution is not converged under tolerance refinement.** For 3 turns, 75 W and 0.5 s, mean T_e at the end differed by 10–20 K between Radau 1e-5, Radau 1e-4/1e-6, Radau 1e-3, RK23 1e-4 and RK23 1e-2, and some settings give temperatures below the sink temperature (`python examples/check_solver_tolerance.py`). The dataset in this README was generated with the fast RK23 1e-2/1e-3 setting, so the "ground truth" depends on the solver settings. Radau 1e-4/1e-6 is the library default but was too slow to generate the full dataset (some runs took more than 15 minutes each). The earlier dataset (RK23 1e-2 / atol 1e-3, where atol exceeds the velocity/displacement scale) has the same problem.
+- **Short, small data.** 66 runs of 4 s (the original generator used 20 s runs; converged tolerances made those impractical). Only one working fluid (acetone), one sink temperature, 3 turns, and test sets of one Q_in each (6 runs differing only in fill ratio and gravity). Uncertainty from this is not captured by the ± values, which only reflect training seeds.
+- **No improvement over persistence at one step.** The surrogate is only useful for multi-step forecasting here, and degrades substantially outside the training Q_in range (160 W).
+- **Physics-loss benefit is modest and uncertain** (3 seeds; see ablation).
+- **Constant Q_in per window.** The physics consistency term uses the last observed Q_in for the whole horizon. Speedups compare to a loose-tolerance solver on CPU.
+- **Stale figures.** The images in `output/` (including the "R² = 0.9999" comparison) and the numbers previously quoted in this README were produced before the evaluation fix, with leaked windows and X[:50] training-set scoring, and should not be cited.
+
+## 📊 Output Artifacts & Plots (partly stale)
+
+> The figures in `output/` predate the evaluation fix (window leakage, training-set scoring) and any metric printed on them (e.g. R² = 0.9999) must not be cited. Rely on the Results section above.
 
 The framework automatically generates publication-ready high-resolution plots in the [`output/`](output/) directory:
 
