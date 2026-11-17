@@ -57,6 +57,36 @@ def predict_windows(model, X: np.ndarray, norm: Dict[str, np.ndarray], batch_siz
     return denorm_targets(np.concatenate(outs, axis=0), norm)
 
 
+def physical_r_th(t_e, t_c, q_in):
+    """R_th = (T_e - T_c) / Q_in, with the same clamps the simulator uses."""
+    return np.maximum(0.01, t_e - t_c) / np.maximum(1.0, q_in)
+
+
+def persistence_forecast(X_norm: np.ndarray, norm: Dict[str, np.ndarray], pred_horizon: int) -> np.ndarray:
+    """
+    Persistence baseline: every future value equals the last observed value.
+
+    T_e and T_c are taken from the last input row; R_th is the value implied by
+    those last observed temperatures. Returns physical units, shape (N, H, 3).
+    """
+    last = denorm_features(X_norm[:, -1, :], norm)
+    t_e, t_c = last[:, COL_TE], last[:, COL_TC]
+    base = np.stack([t_e, t_c, physical_r_th(t_e, t_c, last[:, COL_Q])], axis=-1)
+    return np.repeat(base[:, None, :], pred_horizon, axis=1)
+
+
+def format_comparison(title: str, results: Dict[str, Dict[str, Dict[str, float]]]) -> str:
+    """Pretty table of surrogate vs persistence for each channel."""
+    lines = [title]
+    for ch in CHANNELS:
+        for who in ("surrogate", "persistence"):
+            m = results[who][ch]
+            lines.append(
+                f"   {ch:5s} {who:11s} R2={m['r2']:8.4f}  RMSE={m['rmse']:.4g} {m['unit']}  MAE={m['mae']:.4g} {m['unit']}"
+            )
+    return "\n".join(lines)
+
+
 def evaluate_one_step(
     model,
     runs: List[Dict[str, Any]],
@@ -71,7 +101,12 @@ def evaluate_one_step(
     X, y, = create_sliding_windows(runs, seq_len, pred_horizon, stride=1, norm_params=norm)[:2]
     y_true = denorm_targets(y, norm)
     y_pred = predict_windows(model, X, norm)
+    y_base = persistence_forecast(X, norm, pred_horizon)
     return {
         "n_windows": int(len(X)),
         "surrogate": per_channel_metrics(y_true[:, 0], y_pred[:, 0]),
+        "persistence": per_channel_metrics(y_true[:, 0], y_base[:, 0]),
+        # Whole forecast horizon (teacher-forced), for reference
+        "surrogate_horizon": per_channel_metrics(y_true, y_pred),
+        "persistence_horizon": per_channel_metrics(y_true, y_base),
     }

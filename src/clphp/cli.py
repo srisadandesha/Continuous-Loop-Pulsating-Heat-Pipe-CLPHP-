@@ -23,7 +23,7 @@ from clphp.analysis.plotting import (
     plot_surrogate_comparison,
     plot_training_history,
 )
-from clphp.models.evaluation import evaluate_one_step, CHANNELS
+from clphp.models.evaluation import evaluate_one_step, format_comparison
 
 
 def cmd_simulate(args: argparse.Namespace):
@@ -195,9 +195,7 @@ def cmd_demo(args: argparse.Namespace):
     for name in ("test_interp", "test_extrap"):
         res_one = evaluate_one_step(model, splits[name], norm_params, seq_len=10, pred_horizon=3)
         print(f"-> {name} ({len(splits[name])} runs, {res_one['n_windows']} windows), one-step ahead:")
-        for ch in CHANNELS:
-            m = res_one["surrogate"][ch]
-            print(f"     {ch:5s} R2={m['r2']:8.4f}  RMSE={m['rmse']:.4g} {m['unit']}  MAE={m['mae']:.4g} {m['unit']}")
+        print(format_comparison("   (surrogate vs persistence baseline)", res_one))
 
 
     print("\n=================================================================")
