@@ -38,7 +38,13 @@ PROFILES = {
         q_in_values=None, fill_ratios=[0.50], g_accels=[9.81], sink_temps=[293.15],
         t_sim_end=2.0, t_step=0.05, n_turns=3,
     ),
-    # Enlarged default grid (DatasetConfig defaults): 11 Q_in x 5 fill ratios x 2 gravity levels = 110 runs
+    # Medium profile (the one used for the README results): 3 turns, 2 s runs.
+    "medium": dict(
+        q_in_values=None, fill_ratios=[0.40, 0.50, 0.60], g_accels=[0.0, 9.81], sink_temps=[293.15],
+        t_sim_end=2.0, t_step=0.05, n_turns=3,
+    ),
+    # Enlarged default grid (DatasetConfig defaults): 11 Q_in x 5 fill ratios x 2 gravity levels = 110 runs of 6 s, 5 turns.
+    # WARNING: >1 h on 14 cores at converged tolerance (some runs far longer); not completed here.
     "full": dict(),
 }
 
@@ -53,11 +59,20 @@ def main():
     ap.add_argument("--seq-len", type=int, default=20)
     ap.add_argument("--horizon", type=int, default=5)
     ap.add_argument("--hidden", type=int, default=64)
+    ap.add_argument("--solver", default=None, help="Override solver (default: DatasetConfig default, Radau)")
+    ap.add_argument("--rtol", type=float, default=None)
+    ap.add_argument("--atol", type=float, default=None)
+    ap.add_argument("--t-sim-end", type=float, default=None, help="Override run duration [s]")
     ap.add_argument("--out", default="results")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
-    cfg = DatasetConfig(**PROFILES[args.profile])
+    prof = dict(PROFILES[args.profile])
+    for key, val in (("solver_method", args.solver), ("rtol", args.rtol), ("atol", args.atol),
+                     ("t_sim_end", args.t_sim_end)):
+        if val is not None:
+            prof[key] = val
+    cfg = DatasetConfig(**prof)
     t0 = time.perf_counter()
     if args.dataset and os.path.exists(args.dataset):
         runs = runs_from_npz(args.dataset)

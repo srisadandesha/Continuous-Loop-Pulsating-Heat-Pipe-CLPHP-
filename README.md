@@ -151,7 +151,7 @@ pip install -e .
 ```
 
 ### 2. Run Test Suite
-Run the unit and integration tests (36):
+Run the unit and integration tests (39):
 
 ```bash
 pytest tests/ -v
