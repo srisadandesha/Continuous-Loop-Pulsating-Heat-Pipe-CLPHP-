@@ -38,11 +38,8 @@ PROFILES = {
         q_in_values=None, fill_ratios=[0.50], g_accels=[9.81], sink_temps=[293.15],
         t_sim_end=2.0, t_step=0.05, n_turns=3,
     ),
-    # Enlarged grid (see README for the runtime it needs).
-    "full": dict(
-        q_in_values=None, fill_ratios=[0.40, 0.50, 0.60], g_accels=[0.0, 9.81], sink_temps=[288.15, 298.15],
-        t_sim_end=4.0, t_step=0.05, n_turns=3,
-    ),
+    # Enlarged default grid (DatasetConfig defaults): 11 Q_in x 5 fill ratios x 2 gravity levels = 110 runs
+    "full": dict(),
 }
 
 

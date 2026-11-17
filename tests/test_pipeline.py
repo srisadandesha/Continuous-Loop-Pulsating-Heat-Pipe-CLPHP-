@@ -51,3 +51,25 @@ def test_training_pipeline():
     )
 
     assert len(history["train_loss"]) == 3
+
+
+def test_dataset_generation_is_reproducible_and_parallel_matches_serial():
+    cfg = DatasetConfig(
+        q_in_values=[30.0, 60.0], fill_ratios=[0.50], g_accels=[9.81], fluids=["acetone"],
+        t_sim_end=0.4, t_step=0.05, n_turns=3, solver_method="RK23", rtol=1e-2, atol=1e-3, seed=7,
+    )
+    a = generate_parametric_dataset(config=cfg, verbose=False, n_jobs=1)["runs"]
+    b = generate_parametric_dataset(config=cfg, verbose=False, n_jobs=2)["runs"]
+    c = generate_parametric_dataset(config=cfg, verbose=False, n_jobs=1)["runs"]
+    assert [r["run_id"] for r in a] == [0, 1]
+    for x, y, z in zip(a, b, c):
+        assert np.array_equal(x["features"], y["features"]) and np.array_equal(x["targets"], y["targets"])
+        assert np.array_equal(x["features"], z["features"])
+
+
+def test_default_config_is_enlarged_and_contains_all_split_q_values():
+    from clphp.simulation.dataset_generator import DEFAULT_TRAIN_Q, DEFAULT_VAL_Q, DEFAULT_TEST_Q
+    cfg = DatasetConfig()
+    needed = set(DEFAULT_TRAIN_Q) | set(DEFAULT_VAL_Q) | {q for v in DEFAULT_TEST_Q.values() for q in v}
+    assert needed <= set(cfg.q_in_values)
+    assert len(cfg.q_in_values) >= 11 and len(cfg.fill_ratios) >= 5 and cfg.seed == 42

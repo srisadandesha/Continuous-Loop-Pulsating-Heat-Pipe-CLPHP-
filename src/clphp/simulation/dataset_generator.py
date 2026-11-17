@@ -42,7 +42,7 @@ class DatasetConfig:
     sink_temps: List[float] = None
     g_accels: List[float] = None
     fluids: List[str] = None
-    t_sim_end: float = 20.0
+    t_sim_end: float = 6.0   # 20 s runs at converged tolerance cost ~10 min each
     t_step: float = 0.05
     n_turns: int = 5
     d_inner: float = 0.002
@@ -65,7 +65,7 @@ class DatasetConfig:
                 set(DEFAULT_TRAIN_Q) | set(DEFAULT_VAL_Q) | {q for v in DEFAULT_TEST_Q.values() for q in v}
             )
         if self.fill_ratios is None:
-            self.fill_ratios = [0.40, 0.50, 0.60]
+            self.fill_ratios = [0.35, 0.40, 0.50, 0.60, 0.65]
         if self.sink_temps is None:
             self.sink_temps = [293.15]
         if self.g_accels is None:
@@ -74,106 +74,112 @@ class DatasetConfig:
             self.fluids = ["acetone"]
 
 
+def _simulate_one(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a single parametric simulation and package it as a run dictionary.
+
+    Top-level (picklable) so it can be dispatched to worker processes.
+    """
+    cfg: DatasetConfig = job["cfg"]
+    q, fr, g, t_sink, fluid_name = job["q"], job["fr"], job["g"], job["t_sink"], job["fluid"]
+    geo = PHPGeometry(n_turns=cfg.n_turns, d_inner=cfg.d_inner, fill_ratio=fr)
+    res = simulate_clphp(
+        geometry=geo,
+        fluid_name=fluid_name,
+        q_in=q,
+        t_span=(0.0, cfg.t_sim_end),
+        t_eval_step=cfg.t_step,
+        t_sink_k=t_sink,
+        g_accel=g,
+        solver_method=cfg.solver_method,
+        rtol=cfg.rtol,
+        atol=cfg.atol,
+        seed=cfg.seed,
+    )
+
+    t_arr = res.time
+    t_e = res.t_evap_mean
+    t_c = res.t_cond_mean
+    p_mean = np.mean(res.pressures, axis=1)
+    v_rms_t = np.sqrt(np.mean(res.velocities ** 2, axis=1))
+
+    # Features: [Q_in, T_sink, FillRatio, g, Time, T_e, T_c]
+    # Exogenous: cols 0-4 (known in advance). States: cols 5-6 (T_e, T_c).
+    # P_mean / V_rms are NOT inputs: the surrogate does not predict them,
+    # so they could not be fed back during autoregressive rollout.
+    features_matrix = np.column_stack([
+        np.full_like(t_arr, q),
+        np.full_like(t_arr, t_sink),
+        np.full_like(t_arr, fr),
+        np.full_like(t_arr, g),
+        t_arr,
+        t_e,
+        t_c,
+    ])
+    # Targets: [T_e, T_c, R_th]
+    targets_matrix = np.column_stack([t_e, t_c, res.thermal_resistance])
+
+    return {
+        "fluid": fluid_name,
+        "q_in": q,
+        "fill_ratio": fr,
+        "g_accel": g,
+        "t_sink": t_sink,
+        "features": features_matrix,
+        "targets": targets_matrix,
+        "aux": {"p_mean": p_mean, "v_rms": v_rms_t},
+        "steady_r_th": res.steady_state_r_th,
+        "dom_freq_hz": res.oscillation_frequency_hz,
+        "solver_success": bool(res.success),
+        "solve_time_s": float(res.elapsed_solve_time_s),
+    }
+
+
 def generate_parametric_dataset(
     config: Optional[DatasetConfig] = None,
     output_path: Optional[str] = None,
     verbose: bool = True,
+    n_jobs: int = 1,
 ) -> Dict[str, Any]:
     """
     Generate synthetic time-series dataset from ODE solver across parameter grid.
-    
+
+    Runs are independent and deterministic (``config.seed`` fixes the initial
+    perturbation), so ``n_jobs > 1`` dispatches them to worker processes and
+    returns exactly the same dataset, in the same order.
+
     Returns a dictionary of raw sequences and metadata, and optionally saves to .npz.
     """
     cfg = config or DatasetConfig()
-    runs_data = []
 
-    total_runs = (
-        len(cfg.fluids)
-        * len(cfg.fill_ratios)
-        * len(cfg.g_accels)
-        * len(cfg.sink_temps)
-        * len(cfg.q_in_values)
-    )
+    jobs = [
+        {"cfg": cfg, "fluid": fluid_name, "fr": fr, "g": g, "t_sink": t_sink, "q": q}
+        for fluid_name in cfg.fluids
+        for fr in cfg.fill_ratios
+        for g in cfg.g_accels
+        for t_sink in cfg.sink_temps
+        for q in cfg.q_in_values
+    ]
 
     if verbose:
-        print(f"Generating CLPHP dataset across {total_runs} parametric conditions...")
+        print(f"Generating CLPHP dataset across {len(jobs)} parametric conditions (n_jobs={n_jobs})...")
 
-    pbar = tqdm(total=total_runs, disable=not verbose, desc="CLPHP Simulations")
+    if n_jobs > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=n_jobs) as pool:
+            results = list(tqdm(pool.map(_simulate_one, jobs), total=len(jobs),
+                                disable=not verbose, desc="CLPHP Simulations"))
+    else:
+        results = [_simulate_one(j) for j in tqdm(jobs, disable=not verbose, desc="CLPHP Simulations")]
 
-    run_id = 0
-    for fluid_name in cfg.fluids:
-        for fr in cfg.fill_ratios:
-            geo = PHPGeometry(
-                n_turns=cfg.n_turns,
-                d_inner=cfg.d_inner,
-                fill_ratio=fr,
-            )
-            for g in cfg.g_accels:
-                for t_sink in cfg.sink_temps:
-                    for q in cfg.q_in_values:
-                        res = simulate_clphp(
-                            geometry=geo,
-                            fluid_name=fluid_name,
-                            q_in=q,
-                            t_span=(0.0, cfg.t_sim_end),
-                            t_eval_step=cfg.t_step,
-                            t_sink_k=t_sink,
-                            g_accel=g,
-                            solver_method=cfg.solver_method,
-                            rtol=cfg.rtol,
-                            atol=cfg.atol,
-                            seed=cfg.seed,
-                        )
+    runs_data = []
+    for run_id, r in enumerate(results):
+        r["run_id"] = run_id
+        runs_data.append(r)
 
-                        # Extract time series
-                        t_arr = res.time
-                        t_e = res.t_evap_mean
-                        t_c = res.t_cond_mean
-                        p_mean = np.mean(res.pressures, axis=1)
-                        v_rms_t = np.sqrt(np.mean(res.velocities ** 2, axis=1))
-                        r_th = res.thermal_resistance
+    failed = [r["run_id"] for r in runs_data if not r["solver_success"]]
+    if failed and verbose:
+        print(f"WARNING: solver reported failure for runs {failed}")
 
-                        # Features: [Q_in, T_sink, FillRatio, g, Time, T_e, T_c]
-                        # Exogenous: cols 0-4 (known in advance). States: cols 5-6 (T_e, T_c).
-                        # P_mean / V_rms are NOT inputs: the surrogate does not predict them,
-                        # so they could not be fed back during autoregressive rollout.
-                        features_matrix = np.column_stack([
-                            np.full_like(t_arr, q),
-                            np.full_like(t_arr, t_sink),
-                            np.full_like(t_arr, fr),
-                            np.full_like(t_arr, g),
-                            t_arr,
-                            t_e,
-                            t_c,
-                        ])
-
-                        # Targets: [T_e, T_c, R_th]
-                        targets_matrix = np.column_stack([
-                            t_e,
-                            t_c,
-                            r_th,
-                        ])
-
-                        runs_data.append({
-                            "run_id": run_id,
-                            "fluid": fluid_name,
-                            "q_in": q,
-                            "fill_ratio": fr,
-                            "g_accel": g,
-                            "t_sink": t_sink,
-                            "features": features_matrix,
-                            "targets": targets_matrix,
-                            "aux": {"p_mean": p_mean, "v_rms": v_rms_t},
-                            "steady_r_th": res.steady_state_r_th,
-                            "dom_freq_hz": res.oscillation_frequency_hz,
-                        })
-
-                        run_id += 1
-                        pbar.update(1)
-
-    pbar.close()
-
-    # Consolidate into dataset arrays
     all_features = [r["features"] for r in runs_data]
     all_targets = [r["targets"] for r in runs_data]
 
@@ -182,6 +188,7 @@ def generate_parametric_dataset(
         "n_runs": len(runs_data),
         "feature_names": ["q_in", "t_sink", "fill_ratio", "g_accel", "time", "t_e", "t_c"],
         "target_names": ["t_e", "t_c", "r_th"],
+        "config": cfg.sim_settings(),
     }
 
     if output_path:

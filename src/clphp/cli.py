@@ -244,11 +244,11 @@ def main():
 
     # Command: generate-data
     p_gen = subparsers.add_parser("generate-data", help="Generate parametric dataset")
-    p_gen.add_argument("--qin-list", type=str, default="15,30,50,75,100,130", help="Comma-separated Q_in values")
-    p_gen.add_argument("--fr-list", type=str, default="0.40,0.50,0.60", help="Comma-separated fill ratios")
+    p_gen.add_argument("--qin-list", type=str, default="15,20,30,40,50,60,75,100,115,130,160", help="Comma-separated Q_in values")
+    p_gen.add_argument("--fr-list", type=str, default="0.35,0.40,0.50,0.60,0.65", help="Comma-separated fill ratios")
     p_gen.add_argument("--g-list", type=str, default="0.0,9.81", help="Comma-separated gravity accelerations")
     p_gen.add_argument("--fluids", type=str, default="acetone", help="Comma-separated fluids")
-    p_gen.add_argument("--time", type=float, default=20.0, help="Duration per run [s]")
+    p_gen.add_argument("--time", type=float, default=6.0, help="Duration per run [s]")
     p_gen.add_argument("--dt", type=float, default=0.05, help="Time step [s]")
     p_gen.add_argument("--turns", type=int, default=5, help="Number of turns")
     p_gen.add_argument("--solver", type=str, default="Radau", help="scipy solve_ivp method")
