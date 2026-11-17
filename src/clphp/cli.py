@@ -23,7 +23,7 @@ from clphp.analysis.plotting import (
     plot_surrogate_comparison,
     plot_training_history,
 )
-from clphp.analysis.metrics import evaluate_surrogate_accuracy
+from clphp.models.evaluation import evaluate_one_step, CHANNELS
 
 
 def cmd_simulate(args: argparse.Namespace):
@@ -190,25 +190,15 @@ def cmd_demo(args: argparse.Namespace):
     plot_training_history(history, save_path=loss_plot_path)
     print(f"-> Model trained and saved to {model_path}")
 
-    # 4. Evaluate and Benchmark Speedup
-    print("\nStep 4: Benchmarking Inference Accuracy and Speedup Factor...")
-    import time
-    import torch
+    # 4. Evaluate on held-out test RUNS (never seen in training/validation)
+    print("\nStep 4: Evaluating on held-out test runs (per channel, physical units)...")
+    for name in ("test_interp", "test_extrap"):
+        res_one = evaluate_one_step(model, splits[name], norm_params, seq_len=10, pred_horizon=3)
+        print(f"-> {name} ({len(splits[name])} runs, {res_one['n_windows']} windows), one-step ahead:")
+        for ch in CHANNELS:
+            m = res_one["surrogate"][ch]
+            print(f"     {ch:5s} R2={m['r2']:8.4f}  RMSE={m['rmse']:.4g} {m['unit']}  MAE={m['mae']:.4g} {m['unit']}")
 
-    # Run inference across test set
-    dev = next(model.parameters()).device
-    x_test = torch.tensor(X[:50], dtype=torch.float32, device=dev)
-    t_start = time.perf_counter()
-    with torch.no_grad():
-        preds_norm = model(x_test).cpu().numpy()
-    inf_time_ms = ((time.perf_counter() - t_start) / len(x_test)) * 1e3
-
-    y_test_norm = y[:50]
-    metrics = evaluate_surrogate_accuracy(y_test_norm, preds_norm)
-
-    print(f"-> Surrogate Inference Latency: {inf_time_ms:.3f} ms per sample")
-    print(f"-> Real-Time Speedup Factor: >{int(1000.0 / inf_time_ms)}x real-time")
-    print(f"-> Test RMSE: {metrics['rmse']:.4f} | R^2 Score: {metrics['r2_score']:.4f}")
 
     print("\n=================================================================")
     print(f"  Demo Successfully Finished! All artifacts generated in: {out_dir}/")
